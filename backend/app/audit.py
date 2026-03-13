@@ -24,9 +24,7 @@ from openai import OpenAI
 client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
 
-# ---------------------------------------------------------------------------
 # Helper
-# ---------------------------------------------------------------------------
 
 def _parse_json(text: str) -> dict:
     """Parse JSON from a model response, stripping markdown fences if present."""
@@ -36,12 +34,10 @@ def _parse_json(text: str) -> dict:
     return json.loads(text.strip())
 
 
-# ---------------------------------------------------------------------------
-# Step 1: Data Gathering  (gpt-4o-search-preview — web search enabled)
-#
+# Step 1: Data Gathering  #
 # Client data: stateful 3-turn conversation so each question builds on the last.
 # Competitor data: one call per competitor covering all benchmark dimensions.
-# ---------------------------------------------------------------------------
+# Might overuse tokens but ensures context carries through
 
 def gather_all_client_data(url: str, company_name: str) -> tuple:
     """
@@ -737,7 +733,7 @@ Return as JSON:
 # Main pipeline entry point
 # ---------------------------------------------------------------------------
 
-def run_audit(url: str, company_name: str, competitors: list) -> dict:
+def run_audit(url: str, company_name: str, competitors: list, semrush_pdf_path: str = None) -> dict:
     """
     Run the full audit pipeline sequentially.
     company_name and competitors are supplied by the user.
@@ -745,11 +741,11 @@ def run_audit(url: str, company_name: str, competitors: list) -> dict:
     """
     print(f"[audit] Starting audit for {url} ({company_name})")
 
-    # --- Phase 1: Gather client data (stateful 3-turn conversation) ---
+    # Phase 1: Gather client data (stateful 3-turn conversation) 
     print("[audit] Phase 1: Gathering client data (stateful conversation)...")
     pillar1_data, pillar3_data, pillar4_data = gather_all_client_data(url, company_name)
 
-    # --- Phase 2: Gather competitor benchmark data (one call each) ---
+    # Phase 2: Gather competitor benchmark data (one call each) 
     competitor_facts = []
     for i, comp_url in enumerate(competitors):
         print(f"[audit] Phase 2: Gathering competitor {i+1} data ({comp_url})...")
@@ -763,7 +759,7 @@ def run_audit(url: str, company_name: str, competitors: list) -> dict:
         competitor_facts,
     )
 
-    # --- Phase 3: Generate pillar content ---
+    # Phase 3: Generate pillar content 
     print("[audit] Generating Pillar 1 (Globalization)...")
     p1_content = generate_pillar1(facts)
 

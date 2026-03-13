@@ -1,18 +1,21 @@
 import json
+import os
 import uuid
 from datetime import datetime
 
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, BackgroundTasks
+from fastapi import FastAPI, BackgroundTasks, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 from sqlalchemy import create_engine, Column, String, DateTime, Text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
 from .audit import run_audit
+
+UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "..", "uploads")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 app = FastAPI()
 
@@ -40,6 +43,7 @@ class AuditJob(Base):
     competitor_1 = Column(String, nullable=False)
     competitor_2 = Column(String, nullable=False)
     competitor_3 = Column(String, nullable=False)
+    semrush_pdf_path = Column(String, nullable=True)  # path to uploaded SEMrush PDF, if any
     status = Column(String, default="pending")  # pending | processing | completed | error
     result = Column(Text, nullable=True)         # JSON string of full report
     error_message = Column(Text, nullable=True)
@@ -49,19 +53,8 @@ class AuditJob(Base):
 Base.metadata.create_all(bind=engine)
 
 
-class AuditRequest(BaseModel):
-    url: str
-    company_name: str
-    competitor_1: str
-    competitor_2: str
-    competitor_3: str
-
-
-# ---------------------------------------------------------------------------
 # Background task
-# ---------------------------------------------------------------------------
-
-def run_audit_job(job_id: str, url: str, company_name: str, competitors: list):
+def run_audit_job(job_id: str, url: str, company_name: str, competitors: list, semrush_pdf_path: str = None):
     """Runs the full audit pipeline and updates the DB record when done."""
     db = SessionLocal()
     try:
@@ -71,7 +64,7 @@ def run_audit_job(job_id: str, url: str, company_name: str, competitors: list):
         db.commit()
 
         # Run the pipeline
-        result = run_audit(url, company_name, competitors)
+        result = run_audit(url, company_name, competitors, semrush_pdf_path=semrush_pdf_path)
 
         # Save completed result
         job = db.query(AuditJob).filter(AuditJob.id == job_id).first()
@@ -90,27 +83,42 @@ def run_audit_job(job_id: str, url: str, company_name: str, competitors: list):
         db.close()
 
 
-# ---------------------------------------------------------------------------
 # Endpoints
-# ---------------------------------------------------------------------------
-
 @app.get("/health")
 def health():
     return {"ok": True}
 
 
 @app.post("/audits")
-def create_audit(request: AuditRequest, background_tasks: BackgroundTasks):
+async def create_audit(
+    background_tasks: BackgroundTasks,
+    url: str = Form(...),
+    company_name: str = Form(...),
+    competitor_1: str = Form(...),
+    competitor_2: str = Form(...),
+    competitor_3: str = Form(...),
+    semrush_pdf: UploadFile = File(...),
+):
     """Create a new audit job and start the pipeline in the background."""
     job_id = str(uuid.uuid4())
+
+    # Save uploaded PDF to disk if provided
+    pdf_path = None
+    if semrush_pdf and semrush_pdf.filename:
+        pdf_path = os.path.join(UPLOAD_DIR, f"{job_id}.pdf")
+        contents = await semrush_pdf.read()
+        with open(pdf_path, "wb") as f:
+            f.write(contents)
+
     db = SessionLocal()
     job = AuditJob(
         id=job_id,
-        url=request.url,
-        company_name=request.company_name,
-        competitor_1=request.competitor_1,
-        competitor_2=request.competitor_2,
-        competitor_3=request.competitor_3,
+        url=url,
+        company_name=company_name,
+        competitor_1=competitor_1,
+        competitor_2=competitor_2,
+        competitor_3=competitor_3,
+        semrush_pdf_path=pdf_path,
         status="pending",
         created_at=datetime.utcnow(),
     )
@@ -122,9 +130,10 @@ def create_audit(request: AuditRequest, background_tasks: BackgroundTasks):
     background_tasks.add_task(
         run_audit_job,
         job_id,
-        request.url,
-        request.company_name,
-        [request.competitor_1, request.competitor_2, request.competitor_3],
+        url,
+        company_name,
+        [competitor_1, competitor_2, competitor_3],
+        pdf_path,
     )
 
     return {

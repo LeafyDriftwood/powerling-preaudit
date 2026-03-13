@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 
@@ -9,25 +9,50 @@ function WebsiteForm() {
   const [url, setUrl] = useState('');
   const [companyName, setCompanyName] = useState('');
   const [competitors, setCompetitors] = useState(['', '', '']);
+  const [semrushFile, setSemrushFile] = useState<File | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
 
   const setCompetitor = (index: number, value: string) => {
     setCompetitors(prev => prev.map((c, i) => i === index ? value : c));
   };
 
+  const handleFile = (file: File) => {
+    if (file.type !== 'application/pdf') {
+      toast.error('Please upload a PDF file.');
+      return;
+    }
+    setSemrushFile(file);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file) handleFile(file);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!semrushFile) {
+      toast.error('Please upload a SEMrush Site Audit PDF before submitting.');
+      return;
+    }
     try {
+      const formData = new FormData();
+      formData.append('url', url);
+      formData.append('company_name', companyName);
+      formData.append('competitor_1', competitors[0]);
+      formData.append('competitor_2', competitors[1]);
+      formData.append('competitor_3', competitors[2]);
+      if (semrushFile) {
+        formData.append('semrush_pdf', semrushFile);
+      }
+
       const response = await fetch('http://localhost:8000/audits', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          url,
-          company_name: companyName,
-          competitor_1: competitors[0],
-          competitor_2: competitors[1],
-          competitor_3: competitors[2],
-        }),
+        body: formData,
       });
       const data = await response.json();
       if (response.ok) {
@@ -94,6 +119,47 @@ function WebsiteForm() {
               />
             </div>
           ))}
+        </div>
+      </div>
+
+      {/* SEMrush PDF upload */}
+      <div className="flex flex-col gap-2">
+        <p className="font-semibold text-gray-700">SEMrush Site Audit PDF</p>
+        <div
+          onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+          onDragLeave={() => setIsDragging(false)}
+          onDrop={handleDrop}
+          onClick={() => fileInputRef.current?.click()}
+          className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded-lg px-4 py-6 cursor-pointer transition
+            ${isDragging ? 'border-orange-400 bg-orange-50' : 'border-gray-300 hover:border-orange-400 hover:bg-orange-50'}`}
+        >
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pdf"
+            className="hidden"
+            onChange={(e) => { if (e.target.files?.[0]) handleFile(e.target.files[0]); }}
+          />
+          {semrushFile ? (
+            <div className="flex items-center gap-3 w-full">
+              <span className="text-orange-500 text-xl">📄</span>
+              <span className="text-gray-700 text-sm font-medium truncate flex-1">{semrushFile.name}</span>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setSemrushFile(null); if (fileInputRef.current) fileInputRef.current.value = ''; }}
+                className="text-gray-400 hover:text-red-500 text-sm transition"
+              >
+                Remove
+              </button>
+            </div>
+          ) : (
+            <>
+              <span className="text-3xl text-gray-300">⬆</span>
+              <p className="text-sm text-gray-500 text-center">
+                Drag and drop your SEMrush PDF here, or <span className="text-orange-500 font-medium">click to browse</span>
+              </p>
+            </>
+          )}
         </div>
       </div>
 
