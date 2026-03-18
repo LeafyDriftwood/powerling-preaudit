@@ -39,12 +39,15 @@ def _parse_json(text: str) -> dict:
 # Competitor data: one call per competitor covering all benchmark dimensions.
 # Might overuse tokens but ensures context carries through
 
-def gather_all_client_data(url: str, company_name: str) -> tuple:
+def gather_all_client_data(url: str, company_name: str, crawler_facts: dict = None) -> tuple:
     """
     Gather all three pillars of client data using a single stateful conversation.
     Turn 1 -> Globalization
     Turn 2 -> Accessibility & Compliance (model already has site context from Turn 1)
     Turn 3 -> Online Reputation (model already knows company region, size, etc.)
+
+    crawler_facts: if provided and crawler_ran=True, structural language facts are
+    injected as authoritative and GPT focuses on market/geographic research instead.
     """
     messages = [
         {
@@ -59,7 +62,107 @@ def gather_all_client_data(url: str, company_name: str) -> tuple:
     # ------------------------------------------------------------------
     # Turn 1: Globalization
     # ------------------------------------------------------------------
-    messages.append({"role": "user", "content": f"""
+    crawler_ran = bool(crawler_facts and crawler_facts.get("crawler_ran"))
+
+    if crawler_ran:
+        # Format mixed-language issues for injection
+        ml_issues = crawler_facts.get("mixed_language_issues", [])
+        if ml_issues:
+            detail_parts = []
+            for iss in ml_issues:
+                locale = iss.get("locale", "?")
+                page_url = iss.get("page_url", "?")
+                hits = iss.get("language_hits", [])
+                if hits:
+                    hit_fragments = []
+                    for hit in hits:
+                        lang = hit.get("language", "?")
+                        strings = hit.get("marker_strings_found", [])
+                        hit_fragments.append(f"{lang}: {strings}")
+                    detail_parts.append(f"{locale} page ({page_url}): " + " | ".join(hit_fragments))
+                else:
+                    detail_parts.append(
+                        f"{locale} page ({page_url}): French strings found: {iss.get('french_strings_found', [])}"
+                    )
+            ml_detail = "; ".join(detail_parts)
+        else:
+            ml_detail = "None detected (all locale pages checked)"
+
+        ml_detail_json = json.dumps(ml_issues, ensure_ascii=False)
+        locale_urls_json = json.dumps(crawler_facts.get("locale_urls", {}), ensure_ascii=False)
+        hreflang_tags_json = json.dumps(crawler_facts.get("hreflang_tags", []), ensure_ascii=False)
+        target_langs_json = json.dumps(crawler_facts.get("target_languages", []), ensure_ascii=False)
+        available_lang_variants_json = json.dumps(
+            crawler_facts.get("available_language_variants", crawler_facts.get("available_languages", [])),
+            ensure_ascii=False,
+        )
+
+        x_default_status = (
+            f"Yes, pointing to {crawler_facts.get('hreflang_x_default_url')}"
+            if crawler_facts.get("hreflang_x_default_present")
+            else ("No x-default tag found" if crawler_facts.get("hreflang_present") else "No hreflang tags at all")
+        )
+
+        turn1_prompt = f"""
+You are auditing the website {url} for globalization.
+
+The following structural facts have been confirmed by direct website analysis.
+Use these EXACT values in your JSON response for the listed fields - do not re-research them:
+  available_languages: {crawler_facts['available_languages']}
+    available_language_variants: {available_lang_variants_json}
+  language_selector_type: "{crawler_facts['language_selector_type']}"
+    locale_urls: {locale_urls_json}
+  hreflang_present: {crawler_facts['hreflang_present']}
+    hreflang_tags: {hreflang_tags_json}
+  hreflang_x_default: {x_default_status}
+    pages_checked: {crawler_facts.get('pages_checked', 0)}
+    target_languages_checked_for_mixing: {target_langs_json}
+    mixed_language_ux_issues_detail: {ml_detail_json}
+  mixed_language_ux_issues: {ml_detail}
+
+STEP 1 - Research the company's geographic presence:
+Search online for where {company_name} operates, sells, or has customers. Look for:
+- How many countries they are present in and which specific regions (Europe, APAC, MENA, Americas, CEE, etc.)
+- Their international distributor network, subsidiaries, or office locations
+- Any press releases, About pages, or annual reports mentioning global reach or country count
+
+STEP 2 - Search for any separate regional websites or market-specific domains operated by {company_name} beyond {url}.
+Examples: a French subdomain, a country-specific TLD (.de, .fr), a separate shop or portal.
+For each found, note the domain name, primary language served, and target market.
+
+STEP 3 - Derive required languages from the geographic footprint found in Step 1:
+IMPORTANT: required_languages must reflect the company's ACTUAL global reach - NOT just the languages currently on the website.
+Example: a company operating in 90+ countries across Europe, MENA, APAC, and Latin America needs Arabic, Mandarin, Japanese, Korean, Russian, Turkish, Polish, etc. - even if those are not currently on the site.
+
+STEP 4 - Note translation quality on the website:
+Any observations on machine vs. professional translation, inconsistencies, or untranslated sections.
+
+STEP 5 - Traffic data:
+Approximate monthly organic traffic volume (from public sources if findable), and top 3-5 traffic source countries.
+
+Return ONLY a valid JSON object with no markdown fences:
+{{
+  "available_languages": {crawler_facts['available_languages']},
+    "available_language_variants": {available_lang_variants_json},
+  "language_selector_type": "{crawler_facts['language_selector_type']}",
+    "locale_urls": {locale_urls_json},
+  "geographic_presence": "Present in 90+ countries across Europe (65%), MENA (7.5%), APAC (7.5%), Latin America (7.5%), North America (5%)",
+  "required_languages": ["EN", "FR", "DE", "ES", "IT", "PT", "NL", "AR", "ZH", "JA", "KO", "RU", "TR", "PL"],
+  "hreflang_present": {str(crawler_facts['hreflang_present']).lower()},
+    "hreflang_tags": {hreflang_tags_json},
+    "pages_checked": {crawler_facts.get('pages_checked', 0)},
+    "target_languages": {target_langs_json},
+    "mixed_language_ux_issues_detail": {ml_detail_json},
+  "mixed_language_ux_issues": "{ml_detail}",
+  "translation_quality_notes": "...",
+  "lcr_notes": "...",
+  "estimated_monthly_traffic": "500K-1M",
+  "top_traffic_countries": ["FR", "DE", "US"],
+  "regional_sites": [{{"domain": "example-fr.com", "language": "FR", "market": "France", "note": "Separate French market website"}}]
+}}
+"""
+    else:
+        turn1_prompt = f"""
 You are auditing the website {url} for globalization.
 
 STEP 1 - Research the company's geographic presence FIRST before looking at the website:
@@ -79,7 +182,10 @@ STEP 2 - Check the website for language availability:
 6. Approximate monthly organic traffic volume if findable (from public sources like SimilarWeb estimates).
 7. What are the top 3-5 traffic source countries?
 
-STEP 3 - Derive required languages from the geographic footprint found in Step 1:
+STEP 3 - Search for any separate regional websites or market-specific domains operated by this company beyond {url}.
+For each found, note: domain name, primary language, target market.
+
+STEP 4 - Derive required languages from the geographic footprint found in Step 1:
 IMPORTANT: required_languages must reflect the company's ACTUAL global reach - NOT just the languages currently on the website.
 Example: a company operating in 90+ countries across Europe, MENA, APAC, and Latin America needs Arabic, Mandarin, Japanese, Korean, Russian, Turkish, Polish, etc. - even if those are not currently on the site.
 
@@ -94,9 +200,12 @@ Return ONLY a valid JSON object with no markdown fences:
   "translation_quality_notes": "...",
   "lcr_notes": "...",
   "estimated_monthly_traffic": "500K-1M",
-  "top_traffic_countries": ["FR", "DE", "US"]
+  "top_traffic_countries": ["FR", "DE", "US"],
+  "regional_sites": []
 }}
-"""})
+"""
+
+    messages.append({"role": "user", "content": turn1_prompt})
 
     resp1 = client.chat.completions.create(model="gpt-4o-search-preview", messages=messages)
     p1_text = resp1.choices[0].message.content
@@ -218,21 +327,33 @@ Return ONLY a valid JSON object with no markdown fences:
     return pillar1_data, pillar3_data, pillar4_data
 
 
-def gather_competitor_benchmark_data(url: str) -> dict:
+def gather_competitor_benchmark_data(url: str, crawler_available_languages: list = None) -> dict:
     """
     Gather all benchmark-relevant data for a single competitor in one search call.
     Returns structured data used to populate all three pillar benchmark tables.
+
+    crawler_available_languages: if provided (from Playwright crawler), injected as authoritative
+    so GPT does not re-detect languages.
     """
+    if crawler_available_languages is not None:
+        lang_note = (
+            f"AUTHORITATIVE FACT: Direct website analysis has confirmed this competitor's website "
+            f"serves the following languages (full UX): {crawler_available_languages}. "
+            f"Use these EXACT values for available_languages. Do NOT re-research them.\n\n"
+        )
+    else:
+        lang_note = ""
+
     response = client.chat.completions.create(
         model="gpt-4o-search-preview",
         messages=[
             {"role": "user", "content": f"""
 Research the website {url} to gather competitive benchmark data. Search online for accurate, current information.
 
-Find the following, with actual numbers wherever possible:
+{lang_note}Find the following, with actual numbers wherever possible:
 
 GLOBALIZATION:
-1. What languages are available on the website? Only count full UX languages (not partial translations).
+1. What languages are available on the website? Only count full UX languages (not partial translations).{' (ALREADY CONFIRMED ABOVE - use those values)' if crawler_available_languages is not None else ''}
 2. Search for the company's geographic presence first (countries, regions, distributor network). Then derive required languages based on that footprint - NOT from the available languages. A company in 50+ countries likely needs more than what is on the website.
 3. Brief description of global reach (number of countries, key regions).
 4. Estimated monthly traffic if findable.
@@ -314,6 +435,7 @@ def build_facts_pack(
     pillar3: dict,
     pillar4: dict,
     competitor_facts: list,
+    pillar2: dict = None,
 ) -> dict:
     lcr = compute_lcr(pillar1["available_languages"], pillar1["required_languages"])
     lcr_tier = compute_lcr_tier(lcr)
@@ -338,8 +460,8 @@ def build_facts_pack(
             "lcr_available": len(pillar1["available_languages"]),
             "lcr_required": len(pillar1["required_languages"]),
         },
-        "pillar_2_website_health": {
-            "note": "Google PageSpeed / SEO diagnostic integration pending."
+        "pillar_2_website_health": pillar2 or {
+            "note": "PageSpeed data not available."
         },
         "pillar_3_accessibility": pillar3,
         "pillar_4_online_reputation": pillar4,
@@ -371,10 +493,58 @@ def generate_pillar1(facts: dict) -> dict:
     company_name = facts["company_name"]
     cf = facts["competitor_facts"]
 
+    # Format locale_urls: which URL serves each language
+    locale_urls = p1.get("locale_urls", {})
+    locale_url_str = (
+        "\n".join(f"    {lang}: {href}" for lang, href in locale_urls.items())
+        if locale_urls else "  Not available"
+    )
+    available_variants = p1.get("available_language_variants", p1.get("available_languages", []))
+
+    # x-default status
+    if p1.get("hreflang_x_default_present"):
+        x_default_str = f"Present, pointing to {p1.get('hreflang_x_default_url')}"
+    elif p1.get("hreflang_present"):
+        x_default_str = "Hreflang tags present but no x-default tag found"
+    else:
+        x_default_str = "No hreflang tags at all"
+
+    # Detailed mixed-language issues from crawler
+    ml_issues = p1.get("mixed_language_issues", [])
+    if ml_issues:
+        ml_lines = []
+        for iss in ml_issues:
+            locale = iss.get("locale", "?")
+            page_url = iss.get("page_url", "?")
+            hits = iss.get("language_hits", [])
+            if hits:
+                for hit in hits:
+                    lang = hit.get("language", "?")
+                    strings = hit.get("marker_strings_found", [])
+                    ml_lines.append(f"    Locale '{locale}' ({page_url}): {lang} text found - {strings}")
+            else:
+                strings = iss.get("french_strings_found", [])
+                ml_lines.append(f"    Locale '{locale}' ({page_url}): French text found - {strings}")
+        ml_detail_str = "\n".join(ml_lines)
+    else:
+        ml_detail_str = "  None detected"
+
+    # Regional / separate market sites from GPT
+    regional_sites = p1.get("regional_sites", [])
+    if regional_sites:
+        regional_str = "\n".join(
+            f"    {s.get('domain')} - {s.get('language')} / {s.get('market')}"
+            + (f" ({s.get('note')})" if s.get("note") else "")
+            for s in regional_sites
+        )
+    else:
+        regional_str = "  None identified"
+
+    # Competitors: use N/A* for LCR since required_languages can't be fully audited
     competitor_data_str = "\n".join(
         f"- {c.get('company_name', f'Competitor {i+1}')}: "
         f"{len(c.get('available_languages', []))} languages {c.get('available_languages', [])}, "
-        f"LCR {c.get('lcr_score', 'N/A')}% ({c.get('lcr_tier', 'N/A')}), "
+        f"LCR N/A*, "
         f"reach: {c.get('global_reach', 'N/A')}, "
         f"traffic: {c.get('estimated_monthly_traffic', 'N/A')}"
         for i, c in enumerate(cf)
@@ -390,31 +560,50 @@ Write Pillar 1: Globalization for {company_name} ({facts['url']}).
 
 CLIENT FACTS - use these exactly, do not change any numbers:
 - Geographic presence: {p1.get('geographic_presence', 'N/A')}
-- Available languages: {p1['available_languages']}
+- Available languages (confirmed by direct analysis):
+{locale_url_str}
+- Available language variants (raw locale tags): {available_variants}
 - Language selector type: {p1['language_selector_type']}
-- Required languages: {p1['required_languages']}
+- Required languages (based on geographic footprint): {p1['required_languages']}
 - LCR score: {p1['lcr_score']}% - {p1['lcr_tier']} ({p1['lcr_available']} of {p1['lcr_required']} required languages covered)
-- Hreflang tags present: {p1['hreflang_present']}
-- Mixed-language UX issues: {p1.get('mixed_language_ux_issues', 'None identified')}
-- Translation quality notes: {p1['translation_quality_notes']}
-- Additional notes: {p1['lcr_notes']}
+- Hreflang tags: {p1['hreflang_present']}
+- Hreflang entries detected: {len(p1.get('hreflang_tags', []))}
+- Hreflang x-default: {x_default_str}
+- Mixed-language UX issues (confirmed by direct page analysis):
+{ml_detail_str}
+- Locale pages checked by crawler: {p1.get('pages_checked', 0)}
+- Translation quality notes: {p1.get('translation_quality_notes', 'N/A')}
+- Additional LCR notes: {p1.get('lcr_notes', 'N/A')}
 - Estimated monthly traffic: {p1.get('estimated_monthly_traffic', 'N/A')}
 - Top traffic countries: {p1.get('top_traffic_countries', [])}
+- Separate regional / market-specific sites operated by {company_name}:
+{regional_str}
 
 COMPETITOR BENCHMARK DATA - already researched, use as-is:
 {competitor_data_str}
 
 Write the following sections:
 1. pillar_intro: One sentence introducing what this pillar assesses.
-2. key_findings_intro: An introductory paragraph (3-4 sentences) that uses the geographic presence and language gap to set context.
-3. key_findings_bullets: 5-7 bullet points. One bullet must state the LCR result as "{p1['lcr_score']}% - {p1['lcr_tier']}". If mixed-language UX issues were found, include a specific bullet for that. Do not include the LCR formula.
-4. impact: Text-only paragraph discussing the business impact. No bullet points. Be specific to the company's markets.
-5. recommendations: Exactly 5 actionable bullet points. Where relevant, name specific languages to add based on the geographic gaps in the facts above.
+2. key_findings_intro: An introductory paragraph (3-4 sentences) that uses the geographic presence and language gap to set context. Reference the number of required languages vs. available languages.
+3. key_findings_bullets: 5-7 bullet points covering:
+   - One bullet must state the LCR result as "{p1['lcr_score']}% - {p1['lcr_tier']}". Do not include the LCR formula.
+   - Language selector type and whether hreflang tags are present.
+   - Hreflang x-default status and its SEO implications (if x-default is missing, note this as a gap; if present, confirm it is configured).
+   - If mixed-language UX issues were found, include a specific bullet citing the locale and the foreign-language strings observed.
+   - If regional/separate market sites were identified, include a bullet noting this fragmented presence.
+   - Translation quality observations if notable.
+4. impact: Text-only paragraph discussing the business impact. No bullet points. Address: missed organic traffic from missing language markets, SEO penalties from absent hreflang/x-default configuration, user trust erosion from mixed-language UX, and missed revenue from underserved regions. Be specific to the company's markets.
+5. recommendations: Exactly 5 actionable bullet points. Recommendations should cover:
+   - Specific high-priority languages to add based on geographic gaps (name the languages).
+   - Hreflang implementation with x-default and canonical tag alignment.
+   - Mixed-language UX fixes if issues were found.
+   - Translation quality upgrade path (if applicable).
+   - A fifth recommendation on either sitemap localization, regional site consolidation, or CMS localization workflow.
 6. expected_roi: Text-only paragraph with specific ROI percentage ranges tied to the findings (e.g., organic traffic lift, conversion improvement, lead volume). Vary the ranges based on the severity of the gaps found.
 7. benchmark_table: Columns are Organization, Global Reach, Languages Covered, LCR Score.
    - First row is the client using the exact facts above.
    - Remaining rows use the competitor benchmark data above, marked with "(est.)" where applicable.
-   - LCR Score cells should show "X% - Score Y/3" format for the client and "X% (est.)" for competitors.
+   - LCR Score cells: use "{p1['lcr_score']}% - {p1['lcr_tier']}" for the client, and "N/A*" for all competitors.
 
 Return as JSON:
 {{
@@ -428,12 +617,12 @@ Return as JSON:
     "columns": ["Organization", "Global Reach", "Languages Covered", "LCR Score"],
     "rows": [
       ["{company_name}", "...", "{p1['lcr_available']} languages", "{p1['lcr_score']}% - {p1['lcr_tier']}"],
-      ["...", "...", "...", "..."],
-      ["...", "...", "...", "..."],
-      ["...", "...", "...", "..."]
+      ["...", "...", "...", "N/A*"],
+      ["...", "...", "...", "N/A*"],
+      ["...", "...", "...", "N/A*"]
     ]
   }},
-  "benchmark_note": "Competitor data is estimated based on publicly available information and industry benchmarks, as a formal audit was not conducted on these websites."
+  "benchmark_note": "Competitor language data is estimated from publicly available information. LCR marked N/A* for competitors as a full required-language audit was not conducted on these websites."
 }}
 """}
         ]
@@ -741,15 +930,82 @@ def run_audit(url: str, company_name: str, competitors: list, semrush_pdf_path: 
     """
     print(f"[audit] Starting audit for {url} ({company_name})")
 
-    # Phase 1: Gather client data (stateful 3-turn conversation) 
-    print("[audit] Phase 1: Gathering client data (stateful conversation)...")
-    pillar1_data, pillar3_data, pillar4_data = gather_all_client_data(url, company_name)
+    # Phase 0: Playwright crawler - client site
+    try:
+        from app.crawler import gather_pillar1_facts
+    except ImportError as _import_err:
+        print(f"[audit] WARNING: Could not import crawler: {_import_err}")
+        gather_pillar1_facts = None
 
-    # Phase 2: Gather competitor benchmark data (one call each) 
+    print("[audit] Phase 0: Running Playwright crawler for client site...")
+    client_crawler = None
+    try:
+        if gather_pillar1_facts:
+            client_crawler = gather_pillar1_facts(url, check_mixed_language=True)
+            if client_crawler.get("crawler_ran"):
+                print(f"[audit]   Crawler OK: {client_crawler.get('available_languages')} | "
+                      f"hreflang: {client_crawler.get('hreflang_present')} | "
+                      f"x-default: {client_crawler.get('hreflang_x_default_present')} | "
+                      f"mixed-lang issues: {len(client_crawler.get('mixed_language_issues', []))}")
+            else:
+                print(f"[audit]   Crawler did not run: {client_crawler.get('crawler_error')}")
+                client_crawler = None
+        else:
+            print("[audit]   Crawler not available, skipping.")
+    except Exception as e:
+        print(f"[audit]   Crawler exception: {e}")
+        client_crawler = None
+
+    # Phase 1: Gather client data (stateful 3-turn conversation)
+    print("[audit] Phase 1: Gathering client data (stateful conversation)...")
+    pillar1_data, pillar3_data, pillar4_data = gather_all_client_data(
+        url, company_name, crawler_facts=client_crawler
+    )
+
+    # Merge crawler-only fields into pillar1_data (these never come from GPT)
+    if client_crawler and client_crawler.get("crawler_ran"):
+        pillar1_data["locale_urls"] = client_crawler.get("locale_urls", {})
+        pillar1_data["hreflang_tags"] = client_crawler.get("hreflang_tags", [])
+        pillar1_data["hreflang_x_default_present"] = client_crawler.get("hreflang_x_default_present", False)
+        pillar1_data["hreflang_x_default_url"] = client_crawler.get("hreflang_x_default_url")
+        pillar1_data["mixed_language_issues"] = client_crawler.get("mixed_language_issues", [])
+        pillar1_data["pages_checked"] = client_crawler.get("pages_checked", 0)
+        pillar1_data["target_languages"] = client_crawler.get("target_languages", [])
+        pillar1_data["available_language_variants"] = client_crawler.get(
+            "available_language_variants", client_crawler.get("available_languages", [])
+        )
+        # Override authoritative fields in case GPT deviated from injected values
+        pillar1_data["available_languages"] = client_crawler.get(
+            "available_languages", pillar1_data.get("available_languages", [])
+        )
+        pillar1_data["hreflang_present"] = client_crawler.get(
+            "hreflang_present", pillar1_data.get("hreflang_present", False)
+        )
+        pillar1_data["language_selector_type"] = client_crawler.get(
+            "language_selector_type", pillar1_data.get("language_selector_type", "unknown")
+        )
+
+    # Phase 2: Crawl + gather competitor benchmark data (one crawler + one search call each)
     competitor_facts = []
     for i, comp_url in enumerate(competitors):
-        print(f"[audit] Phase 2: Gathering competitor {i+1} data ({comp_url})...")
-        comp_data = gather_competitor_benchmark_data(comp_url)
+        print(f"[audit] Phase 2: Crawling competitor {i+1} ({comp_url})...")
+        try:
+            comp_crawler = gather_pillar1_facts(comp_url, check_mixed_language=False) if gather_pillar1_facts else None
+            comp_langs = comp_crawler.get("available_languages") if (comp_crawler and comp_crawler.get("crawler_ran")) else None
+            if comp_langs is not None:
+                print(f"[audit]   Competitor {i+1} crawler OK: {comp_langs}")
+            else:
+                err = comp_crawler.get("crawler_error") if comp_crawler else "crawler not available"
+                print(f"[audit]   Competitor {i+1} crawler failed: {err}")
+        except Exception as e:
+            print(f"[audit]   Competitor {i+1} crawler exception: {e}")
+            comp_langs = None
+
+        print(f"[audit]   Gathering competitor {i+1} data via search ({comp_url})...")
+        comp_data = gather_competitor_benchmark_data(comp_url, crawler_available_languages=comp_langs)
+        # Ensure crawler's available_languages takes precedence
+        if comp_langs is not None:
+            comp_data["available_languages"] = comp_langs
         competitor_facts.append(comp_data)
 
     print("[audit] Building facts pack...")
