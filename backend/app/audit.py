@@ -799,11 +799,216 @@ Return as JSON:
     return _parse_json(response.choices[0].message.content)
 
 
+def _format_pillar2_facts(p2: dict) -> str:
+    """
+    Format Pillar 2 facts into three labeled sections for the GPT prompt.
+    Only non-None values are included to keep the prompt clean.
+    """
+    na = "N/A"
+    lines = []
+
+    # ---- Section 1: Site Crawl (DataForSEO) ----
+    if p2.get("crawl_ran"):
+        pages = p2.get("pages_crawled", 0)
+        score = p2.get("site_health_score")
+        lines.append(f"## Site Crawl (DataForSEO OnPage, {pages} pages crawled)")
+        if score is not None:
+            lines.append(f"- Site health score: {score}/100")
+        lines.append(f"- Broken internal URLs: {p2.get('broken_internal_urls', na)}")
+        lines.append(
+            f"- Redirect pages: {p2.get('redirect_pages', na)} "
+            f"(permanent 301: {p2.get('permanent_redirects', na)}, "
+            f"temporary 302: {p2.get('temporary_redirects', na)})"
+        )
+        lines.append(f"- Missing title tag: {p2.get('missing_title_pages', na)}")
+        lines.append(f"- Short title (<30 chars): {p2.get('short_title_pages', na)}")
+        lines.append(f"- Long title (>60 chars): {p2.get('long_title_pages', na)}")
+        lines.append(f"- Duplicate titles: {p2.get('duplicate_title_pages', na)}")
+        lines.append(f"- Missing meta description: {p2.get('missing_meta_descriptions', na)}")
+        lines.append(f"- Duplicate meta descriptions: {p2.get('duplicate_meta_pages', na)}")
+        lines.append(f"- Missing H1: {p2.get('missing_h1_pages', na)}")
+        lines.append(f"- Multiple H1s: {p2.get('multiple_h1_pages', na)}")
+        lines.append(f"- Missing canonical tag: {p2.get('missing_canonical_pages', na)}")
+        lines.append(f"- Pages with missing alt text: {p2.get('images_missing_alt', na)}")
+        lines.append(f"- Thin content pages (<300 words): {p2.get('thin_content_pages', na)}")
+        if p2.get("duplicate_content_pages") is not None:
+            lines.append(f"- Duplicate content pages: {p2['duplicate_content_pages']}")
+        if p2.get("avg_word_count") is not None:
+            lines.append(f"- Avg word count: {p2['avg_word_count']}")
+        if p2.get("avg_text_to_html_ratio") is not None:
+            lines.append(f"- Avg text-to-HTML ratio: {p2['avg_text_to_html_ratio']}")
+        if p2.get("max_crawl_depth") is not None:
+            lines.append(
+                f"- Crawl depth: max {p2['max_crawl_depth']}, "
+                f"avg {p2.get('avg_crawl_depth')}, "
+                f"pages at depth >3: {p2.get('pages_deep_crawl')}"
+            )
+        if p2.get("orphan_pages") is not None:
+            lines.append(f"- Pages not in sitemap: {p2['orphan_pages']}")
+        if p2.get("https_to_http_links"):
+            lines.append(f"- HTTPS-to-HTTP links: {p2['https_to_http_links']}")
+        if p2.get("broken_resources_pages") is not None:
+            lines.append(f"- Pages with broken resources (images/CSS/JS): {p2['broken_resources_pages']}")
+        if p2.get("crawl_scope_note"):
+            lines.append(f"  Scope: {p2['crawl_scope_note']}")
+    else:
+        error = p2.get("crawl_error") or "not run"
+        lines.append(f"## Site Crawl\nNot available ({error}).")
+
+    lines.append("")
+
+    # ---- Section 2: Performance (Google PSI) ----
+    lines.append("## Performance (Google PageSpeed Insights)")
+    hp_m = p2.get("homepage_mobile", {})
+    hp_d = p2.get("homepage_desktop", {})
+
+    if hp_m.get("psi_ran"):
+        lines.append(
+            f"Homepage mobile: performance {p2.get('performance_score_mobile')}/100, "
+            f"SEO {p2.get('seo_score_mobile')}/100, "
+            f"accessibility {p2.get('accessibility_score_mobile')}/100"
+        )
+        lines.append(
+            f"  LCP {p2.get('lcp_mobile') or na}, "
+            f"CLS {p2.get('cls_mobile') or na}, "
+            f"INP {p2.get('inp_mobile') or na}"
+        )
+        cwv_parts = [
+            f"LCP {p2.get('cwv_lcp_category') or na}",
+            f"CLS {p2.get('cwv_cls_category') or na}",
+            f"INP {p2.get('cwv_inp_category') or na}",
+        ]
+        lines.append(f"  Core Web Vitals field data: {', '.join(cwv_parts)}")
+        perf_issues = [
+            label for flag, label in [
+                (p2.get("render_blocking_resources"), "render-blocking resources"),
+                (p2.get("unused_javascript"), "unused JavaScript"),
+                (p2.get("unused_css"), "unused CSS"),
+            ] if flag
+        ]
+        if perf_issues:
+            lines.append(f"  Performance issues detected: {', '.join(perf_issues)}")
+    else:
+        lines.append(f"Homepage mobile PSI: not available ({hp_m.get('psi_error') or 'not run'}).")
+
+    if hp_d.get("psi_ran"):
+        lines.append(
+            f"Homepage desktop: performance {p2.get('performance_score_desktop')}/100, "
+            f"LCP {p2.get('lcp_desktop') or na}"
+        )
+
+    locale_results = p2.get("locale_psi_results", [])
+    if locale_results:
+        lines.append(
+            f"Locale pages tested: {len(locale_results)}, "
+            f"mobile performance range: "
+            f"{p2.get('locale_performance_min')}-{p2.get('locale_performance_max')} "
+            f"(avg {p2.get('locale_performance_avg')})"
+        )
+        poor = [r for r in locale_results
+                if r.get("performance_score") is not None and r.get("performance_score") < 50]
+        if poor:
+            lines.append(
+                "  Locale pages with poor mobile performance (<50): "
+                + ", ".join(f"{r['lang']} ({r.get('performance_score')})" for r in poor)
+            )
+
+    lines.append("")
+
+    # ---- Section 3: Homepage Technical Checks ----
+    lines.append("## Homepage Technical Checks")
+    lines.append(f"- robots.txt: {'present' if p2.get('has_robots_txt') else 'absent'}")
+    lines.append(f"- sitemap.xml: {'present' if p2.get('has_sitemap_xml') else 'absent'}")
+    lines.append(f"- llms.txt: {'present' if p2.get('has_llms_txt') else 'absent'}")
+    lines.append(f"- HSTS header: {'enabled' if p2.get('hsts_present') else 'not detected'}")
+    lines.append(f"- HTTP to HTTPS redirect: {'yes' if p2.get('https_redirect') else 'no'}")
+    schema_types = p2.get("schema_types", [])
+    lines.append(
+        f"- Schema.org types: {', '.join(schema_types)}" if schema_types
+        else "- Schema.org markup: none detected"
+    )
+    h1_texts = p2.get("h1_texts", [])
+    h1_count = p2.get("h1_count")
+    if h1_count is not None:
+        h1_str = f"{h1_count} H1 tag(s)"
+        if h1_texts:
+            h1_str += f" — first: {h1_texts[0]!r}"
+        lines.append(f"- Homepage H1: {h1_str}")
+
+    return "\n".join(lines)
+
+
+def generate_pillar2(facts: dict) -> dict:
+    p2 = facts["pillar_2_website_health"]
+    company_name = facts["company_name"]
+    cf = facts["competitor_facts"]
+
+    p2_facts_str = _format_pillar2_facts(p2)
+
+    # Build competitor rows — no P2 data gathered for competitors
+    competitor_rows = "\n".join(
+        f'      ["{c.get("company_name", f"Competitor {i+1}")}", '
+        f'"Not assessed", "Not assessed", "Not assessed", "Not assessed"]'
+        for i, c in enumerate(cf)
+    )
+
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        response_format={"type": "json_object"},
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": f"""
+Write Pillar 2: Website Health for {company_name} ({facts['url']}).
+
+CLIENT FACTS - use these exactly, do not change any numbers:
+{p2_facts_str}
+
+Write the following sections:
+1. pillar_intro: One sentence introducing what this pillar assesses.
+2. key_findings_intro: An introductory paragraph (3-4 sentences) using the site health score and performance data to set context. If site health score is available, lead with it.
+3. key_findings_bullets: 5-7 bullet points covering the most impactful findings. Prioritize:
+   - Site health score (if available) and what it signals about overall technical quality
+   - The most critical on-page SEO issues (broken links, missing meta descriptions, missing H1, canonicals) with exact counts
+   - Mobile performance score and Core Web Vitals (LCP, CLS) with actual numbers
+   - Core Web Vitals field-data status (POOR/NEEDS_IMPROVEMENT/GOOD) if available
+   - Thin or duplicate content if significant
+   - Technical hygiene (HSTS, schema markup, sitemap, llms.txt, HTTP redirect)
+4. impact: Text-only paragraph discussing business impact. No bullet points. Cover: search ranking impact from on-page SEO issues, user experience and bounce rate impact from slow mobile performance, and any crawlability or indexation risks. Be specific to the numbers found.
+5. recommendations: Exactly 5 actionable bullet points, ordered by priority.
+6. expected_roi: Text-only paragraph with specific ROI percentage ranges tied to the findings (e.g., organic traffic lift from fixing SEO issues, conversion lift from improving LCP).
+7. benchmark_table: Columns are Organization, Site Health Score, Mobile Performance, LCP (Mobile), SEO Score (PSI).
+   - First row is the client using the exact facts above.
+   - Competitor rows use "Not assessed" as no diagnostic tools were run on competitor sites.
+
+Return as JSON:
+{{
+  "pillar_intro": "...",
+  "key_findings_intro": "...",
+  "key_findings_bullets": ["...", "..."],
+  "impact": "...",
+  "recommendations": ["...", "..."],
+  "expected_roi": "...",
+  "benchmark_table": {{
+    "columns": ["Organization", "Site Health Score", "Mobile Performance", "LCP (Mobile)", "SEO Score (PSI)"],
+    "rows": [
+      ["{company_name}", "...", "...", "...", "..."],
+{competitor_rows}
+    ]
+  }},
+  "benchmark_note": "Competitor website health data was not assessed in this audit. A full diagnostic would require running equivalent tools against each competitor site."
+}}
+"""}
+        ]
+    )
+    return _parse_json(response.choices[0].message.content)
+
+
 def generate_competitive_landscape(facts: dict, pillar_summaries: dict) -> dict:
     company_name = facts["company_name"]
     cf = facts["competitor_facts"]
 
     p1_context = pillar_summaries.get("pillar_1", {}).get("key_findings_intro", "")
+    p2_context = pillar_summaries.get("pillar_2", {}).get("key_findings_intro", "")
     p3_context = pillar_summaries.get("pillar_3", {}).get("key_findings_intro", "")
     p4_context = pillar_summaries.get("pillar_4", {}).get("key_findings_intro", "")
 
@@ -819,8 +1024,29 @@ def generate_competitive_landscape(facts: dict, pillar_summaries: dict) -> dict:
     )
 
     p1 = facts["pillar_1_globalization"]
+    p2 = facts["pillar_2_website_health"]
     p3 = facts["pillar_3_accessibility"]
     p4 = facts["pillar_4_online_reputation"]
+
+    if p2.get("crawl_ran") or p2.get("psi_ran"):
+        site_health = (
+            f"{p2.get('site_health_score')}/100"
+            if p2.get("site_health_score") is not None
+            else "N/A"
+        )
+        mobile_perf = (
+            f"{p2.get('performance_score_mobile')}/100"
+            if p2.get("performance_score_mobile") is not None
+            else "N/A"
+        )
+        lcp_mobile = p2.get("lcp_mobile") or "N/A"
+        p2_health_summary = (
+            f"Site health score {site_health}, "
+            f"mobile performance {mobile_perf}, "
+            f"LCP {lcp_mobile}"
+        )
+    else:
+        p2_health_summary = "not assessed"
 
     response = client.chat.completions.create(
         model="gpt-4o",
@@ -832,11 +1058,13 @@ Write the Competitive Landscape section for {company_name} ({facts['url']}).
 
 Client audit summary:
 - Globalization: LCR {p1['lcr_score']}% - {p1['lcr_tier']}, {p1['lcr_available']} languages, geographic presence: {p1.get('geographic_presence', 'N/A')}
+- Website Health: {p2_health_summary}
 - Accessibility: WCAG level {p3.get('wcag_level_claimed', 'undeclared')}, accessibility statement: {'Yes' if p3.get('has_accessibility_statement') else 'No'}, issues: {p3.get('wcag_issues', [])}
 - Online Reputation: sentiment {p4.get('overall_sentiment', 'N/A')}, LinkedIn {p4.get('social_media', dict()).get('linkedin', dict()).get('followers', 'N/A')} followers
 
 Already-written pillar summaries for context:
 - Globalization: {p1_context}
+- Website Health: {p2_context}
 - Accessibility: {p3_context}
 - Online Reputation: {p4_context}
 
@@ -849,7 +1077,7 @@ Instructions:
    - Use short company names (not full URLs) as column headers for competitors.
    - Each cell must be data-dense, max 15 words. Use actual numbers from the facts above.
    - Mark competitor cells with "(est.)" where data is estimated.
-   - Website Health row: since no diagnostic data is available for any company, note this briefly for all columns.
+   - Website Health row: use the client's actual data from above. For competitors, note "Not assessed".
 
 Return as JSON:
 {{
@@ -875,9 +1103,11 @@ def generate_conclusion(facts: dict, pillar_summaries: dict) -> dict:
     company_name = facts["company_name"]
 
     p1_impact = pillar_summaries.get("pillar_1", {}).get("impact", "")
+    p2_impact = pillar_summaries.get("pillar_2", {}).get("impact", "")
     p3_impact = pillar_summaries.get("pillar_3", {}).get("impact", "")
     p4_impact = pillar_summaries.get("pillar_4", {}).get("impact", "")
     p1_recs = pillar_summaries.get("pillar_1", {}).get("recommendations", [])
+    p2_recs = pillar_summaries.get("pillar_2", {}).get("recommendations", [])
     p3_recs = pillar_summaries.get("pillar_3", {}).get("recommendations", [])
     p4_recs = pillar_summaries.get("pillar_4", {}).get("recommendations", [])
 
@@ -891,11 +1121,13 @@ Write the Conclusion for the audit of {company_name} ({facts['url']}).
 
 Already-written pillar impacts for context:
 - Globalization impact: {p1_impact}
+- Website Health impact: {p2_impact}
 - Accessibility impact: {p3_impact}
 - Online Reputation impact: {p4_impact}
 
 Already-written pillar recommendations for context:
 - Globalization: {p1_recs}
+- Website Health: {p2_recs}
 - Accessibility: {p3_recs}
 - Online Reputation: {p4_recs}
 
@@ -985,6 +1217,25 @@ def run_audit(url: str, company_name: str, competitors: list, semrush_pdf_path: 
             "language_selector_type", pillar1_data.get("language_selector_type", "unknown")
         )
 
+    # Phase 0b: Gather Pillar 2 (DataForSEO crawl + PSI + homepage checks)
+    # Runs after the Playwright crawler so locale_urls are available.
+    print("[audit] Phase 0b: Gathering Pillar 2 website health data...")
+    pillar2_data = None
+    try:
+        try:
+            from app.website_health import gather_pillar2_facts as _gather_p2
+        except ImportError:
+            from website_health import gather_pillar2_facts as _gather_p2
+        locale_urls = client_crawler.get("locale_urls") if client_crawler else None
+        pillar2_data = _gather_p2(url, locale_urls=locale_urls, max_crawl_pages=200)
+        print(f"[audit]   Pillar 2 complete. "
+              f"PSI ran: {pillar2_data.get('psi_ran')}, "
+              f"Crawl ran: {pillar2_data.get('crawl_ran')}, "
+              f"Health score: {pillar2_data.get('site_health_score')}")
+    except Exception as e:
+        print(f"[audit]   Pillar 2 gathering failed: {e}")
+        pillar2_data = None
+
     # Phase 2: Crawl + gather competitor benchmark data (one crawler + one search call each)
     competitor_facts = []
     for i, comp_url in enumerate(competitors):
@@ -1013,11 +1264,15 @@ def run_audit(url: str, company_name: str, competitors: list, semrush_pdf_path: 
         url, company_name, competitors,
         pillar1_data, pillar3_data, pillar4_data,
         competitor_facts,
+        pillar2=pillar2_data,
     )
 
-    # Phase 3: Generate pillar content 
+    # Phase 3: Generate pillar content
     print("[audit] Generating Pillar 1 (Globalization)...")
     p1_content = generate_pillar1(facts)
+
+    print("[audit] Generating Pillar 2 (Website Health)...")
+    p2_content = generate_pillar2(facts)
 
     print("[audit] Generating Pillar 3 (Accessibility)...")
     p3_content = generate_pillar3(facts)
@@ -1027,6 +1282,7 @@ def run_audit(url: str, company_name: str, competitors: list, semrush_pdf_path: 
 
     pillar_summaries = {
         "pillar_1": p1_content,
+        "pillar_2": p2_content,
         "pillar_3": p3_content,
         "pillar_4": p4_content,
     }
@@ -1042,7 +1298,7 @@ def run_audit(url: str, company_name: str, competitors: list, semrush_pdf_path: 
     return {
         "facts": facts,
         "pillar_1": p1_content,
-        "pillar_2": {"note": "Google PageSpeed / SEO diagnostic integration pending."},
+        "pillar_2": p2_content,
         "pillar_3": p3_content,
         "pillar_4": p4_content,
         "competitive_landscape": landscape,

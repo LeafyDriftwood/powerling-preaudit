@@ -15,6 +15,12 @@ import re  # used in _detect_locale_urls for URL path + lang text patterns
 from urllib.parse import urlparse
 from typing import Dict, List, Optional
 
+try:
+    import tldextract as _tldextract
+    _TLDEXTRACT_AVAILABLE = True
+except ImportError:
+    _TLDEXTRACT_AVAILABLE = False
+
 
 # ---------------------------------------------------------------------------
 # French marker phrases
@@ -69,8 +75,10 @@ COMMON_LANG_CODES = {
 def _normalize_lang(raw: str) -> str:
     """
     Normalize a BCP-47 language tag to a simple 2-letter uppercase code.
-    e.g. "en-US" -> "EN", "fr-BE" -> "FR", "fr_FR" -> "FR", "x-default" -> "X-DEFAULT"
+    e.g. "en-US" -> "EN", "fr-BE" -> "FR", "fr_FR" -> "FR", "x-default" -> "X"
     Handles both hyphen (hreflang) and underscore (og:locale) separators.
+    Note: "x-default" produces "X" (not "X-DEFAULT"); callers must filter
+    x-default before calling this function if they need to skip it.
     """
     return re.split(r'[-_]', raw)[0].upper()
 
@@ -135,28 +143,38 @@ def _extract_code_from_href(href: str, base_url: str) -> Optional[str]:
         if _is_probable_lang_code(code):
             return code
 
-    # Subdomain strategy
+    # Subdomain strategy — uses tldextract (Public Suffix List) so that
+    # multi-part TLDs like .co.uk are handled correctly.
     try:
-        parsed_href = urlparse(href)
-        parsed_base = urlparse(base_url)
-        host = (parsed_href.hostname or "").lower()
-        base_host = (parsed_base.hostname or "").lower()
-        if host.startswith("www."):
-            host = host[4:]
-        if base_host.startswith("www."):
-            base_host = base_host[4:]
-
-        host_parts = host.split(".")
-        base_parts = base_host.split(".")
-        if len(host_parts) >= 3 and len(base_parts) >= 2:
-            host_root = ".".join(host_parts[-2:])
-            base_root = ".".join(base_parts[-2:])
-            if host_root == base_root:
-                sub = host_parts[0]
+        if _TLDEXTRACT_AVAILABLE:
+            ext_href = _tldextract.extract(href)
+            ext_base = _tldextract.extract(base_url)
+            if (
+                ext_href.registered_domain
+                and ext_href.registered_domain == ext_base.registered_domain
+                and ext_href.subdomain
+            ):
+                # Take only the leftmost subdomain label (e.g. "en" from "en.www")
+                sub = ext_href.subdomain.split(".")[0]
                 if re.fullmatch(r"[a-z]{2}(?:[-_][a-z]{2})?", sub, re.IGNORECASE):
                     code = _normalize_lang(sub)
                     if _is_probable_lang_code(code):
                         return code
+        else:
+            # Fallback: 2-label comparison (does not handle .co.uk-style TLDs)
+            parsed_href = urlparse(href)
+            parsed_base = urlparse(base_url)
+            host = (parsed_href.hostname or "").lower().removeprefix("www.")
+            base_host = (parsed_base.hostname or "").lower().removeprefix("www.")
+            host_parts = host.split(".")
+            base_parts = base_host.split(".")
+            if len(host_parts) >= 3 and len(base_parts) >= 2:
+                if ".".join(host_parts[-2:]) == ".".join(base_parts[-2:]):
+                    sub = host_parts[0]
+                    if re.fullmatch(r"[a-z]{2}(?:[-_][a-z]{2})?", sub, re.IGNORECASE):
+                        code = _normalize_lang(sub)
+                        if _is_probable_lang_code(code):
+                            return code
     except Exception:
         return None
 
@@ -439,7 +457,7 @@ def gather_pillar1_facts(
             print(f"[crawler] Homepage lang signal: {html_lang!r}")
             if html_lang:
                 base_code = _normalize_lang(html_lang)
-                if base_code and base_code not in ("X-DEFAULT",) and base_code not in locale_urls:
+                if _is_probable_lang_code(base_code) and base_code not in locale_urls:
                     locale_urls[base_code] = url
                     print(f"[crawler] Added base language {base_code} from html/og:locale")
 
