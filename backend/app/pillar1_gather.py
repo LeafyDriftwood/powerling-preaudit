@@ -1,0 +1,543 @@
+"""
+Pillar 1 — Globalization data gathering.
+
+Two public functions:
+  gather_pillar1_facts(url, ...)        — Playwright crawler: locale URLs, hreflang, selector type
+  gather_mixed_language_issues(domain, available_languages) — GPT-5: find mixed-language UX issues
+"""
+
+import json
+import os
+import re
+from urllib.parse import urlparse
+from typing import Dict, List, Optional
+
+from openai import OpenAI
+
+try:
+    import tldextract as _tldextract
+    _TLDEXTRACT_AVAILABLE = True
+except ImportError:
+    _TLDEXTRACT_AVAILABLE = False
+
+openai_client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+
+
+# ---------------------------------------------------------------------------
+# French marker phrases (kept for backward compatibility / reference)
+# ---------------------------------------------------------------------------
+
+FRENCH_MARKERS = [
+    "en savoir plus",
+    "lire la suite",
+    "en savoir",
+    "savoir plus",
+    "découvrir",
+    "télécharger",
+    "contactez-nous",
+    "contactez nous",
+    "nous contacter",
+    "à propos",
+    "accueil",
+    "actualités",
+    "nos solutions",
+    "nos produits",
+    "nos services",
+    "notre équipe",
+    "voir plus",
+    "voir tout",
+    "voir tous",
+    "en voir plus",
+]
+
+DEFAULT_MARKER_PHRASES_BY_LANGUAGE = {
+    "FR": FRENCH_MARKERS,
+}
+
+COMMON_LANG_CODES = {
+    "AR", "BG", "CS", "DA", "DE", "EL", "EN", "ES", "ET", "FA", "FI", "FR",
+    "HE", "HI", "HR", "HU", "ID", "IT", "JA", "KO", "LT", "LV", "MS", "NL",
+    "NO", "PL", "PT", "RO", "RU", "SK", "SL", "SR", "SV", "TH", "TR", "UK",
+    "VI", "ZH",
+}
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _normalize_lang(raw: str) -> str:
+    return re.split(r'[-_]', raw)[0].upper()
+
+
+def _is_probable_lang_code(code: str) -> bool:
+    return bool(code and re.fullmatch(r"[A-Z]{2}", code) and code in COMMON_LANG_CODES)
+
+
+def _add_locale_candidate(locale_urls: dict, code: Optional[str], href: Optional[str]) -> None:
+    if not code or not href:
+        return
+    clean = code.upper()
+    if clean == "X-DEFAULT":
+        return
+    if clean not in locale_urls:
+        locale_urls[clean] = href
+
+
+def _extract_code_from_href(href: str, base_url: str) -> Optional[str]:
+    if not href:
+        return None
+
+    query_match = re.search(
+        r"[?&](?:lang|locale|hl|language)=([a-z]{2}(?:[-_][a-z]{2})?)(?:[&#]|$)",
+        href, re.IGNORECASE,
+    )
+    if query_match:
+        code = _normalize_lang(query_match.group(1))
+        if _is_probable_lang_code(code):
+            return code
+
+    hash_match = re.search(
+        r"#(?:/|.*(?:lang|locale)=)([a-z]{2}(?:[-_][a-z]{2})?)(?:[&#/]|$)",
+        href, re.IGNORECASE,
+    )
+    if hash_match:
+        code = _normalize_lang(hash_match.group(1))
+        if _is_probable_lang_code(code):
+            return code
+
+    path_match = re.search(r"/(?:[a-z]{2}(?:[-_][a-z]{2})?)(?:/|$|\?)", href, re.IGNORECASE)
+    if path_match:
+        code = _normalize_lang(path_match.group(0).strip("/?"))
+        if _is_probable_lang_code(code):
+            return code
+
+    try:
+        if _TLDEXTRACT_AVAILABLE:
+            ext_href = _tldextract.extract(href)
+            ext_base = _tldextract.extract(base_url)
+            if (
+                ext_href.registered_domain
+                and ext_href.registered_domain == ext_base.registered_domain
+                and ext_href.subdomain
+            ):
+                sub = ext_href.subdomain.split(".")[0]
+                if re.fullmatch(r"[a-z]{2}(?:[-_][a-z]{2})?", sub, re.IGNORECASE):
+                    code = _normalize_lang(sub)
+                    if _is_probable_lang_code(code):
+                        return code
+        else:
+            parsed_href = urlparse(href)
+            parsed_base = urlparse(base_url)
+            host = (parsed_href.hostname or "").lower().removeprefix("www.")
+            base_host = (parsed_base.hostname or "").lower().removeprefix("www.")
+            host_parts = host.split(".")
+            base_parts = base_host.split(".")
+            if len(host_parts) >= 3 and len(base_parts) >= 2:
+                if ".".join(host_parts[-2:]) == ".".join(base_parts[-2:]):
+                    sub = host_parts[0]
+                    if re.fullmatch(r"[a-z]{2}(?:[-_][a-z]{2})?", sub, re.IGNORECASE):
+                        code = _normalize_lang(sub)
+                        if _is_probable_lang_code(code):
+                            return code
+    except Exception:
+        return None
+
+    return None
+
+
+def _find_marker_strings(texts: List[str], markers: List[str]) -> List[str]:
+    found = set()
+    for text in texts:
+        lowered = text.strip().lower()
+        if not lowered:
+            continue
+        for marker in markers:
+            if marker in lowered:
+                found.add(text.strip())
+                break
+    return sorted(found)
+
+
+def _extract_interactive_texts(page) -> list:
+    return page.evaluate("""() => {
+        const selectors = [
+            'a', 'button',
+            '[role="button"]',
+            'nav a', '.nav a', '.menu a', '.navigation a',
+            '.cta', '.btn', '[class*="cta"]', '[class*="btn"]',
+            '.card a', '.news a', '.article a', '.post a',
+        ];
+        const seen = new Set();
+        const results = [];
+        for (const sel of selectors) {
+            try {
+                document.querySelectorAll(sel).forEach(el => {
+                    const t = (el.innerText || el.textContent || '').trim();
+                    if (t && t.length > 1 && t.length < 120 && !seen.has(t)) {
+                        seen.add(t);
+                        results.push(t);
+                    }
+                });
+            } catch(e) {}
+        }
+        return results;
+    }""")
+
+
+def _detect_locale_urls(page, base_url: str) -> dict:
+    locale_urls = {}
+
+    hreflang_tags = page.evaluate("""() => {
+        return Array.from(
+            document.querySelectorAll('link[rel="alternate"][hreflang]')
+        ).map(el => ({ lang: el.hreflang, href: el.href }));
+    }""")
+
+    for tag in hreflang_tags:
+        lang = tag.get("lang", "")
+        href = tag.get("href", "")
+        if lang and href and lang.lower() != "x-default":
+            code = _normalize_lang(lang)
+            _add_locale_candidate(locale_urls, code, href)
+
+    switcher_links = page.evaluate("""() => {
+        const selectors = [
+            '.lang-switcher a', '.language-switcher a', '.language-selector a',
+            '.lang-selector a', '.languages a', '#lang-switcher a',
+            '[class*="lang"] a', '[class*="language"] a',
+            '[id*="lang"] a', '[id*="language"] a',
+            'header a[hreflang]', 'nav a[hreflang]',
+        ];
+        const found = [];
+        for (const sel of selectors) {
+            try {
+                document.querySelectorAll(sel).forEach(el => {
+                    const href = el.href;
+                    const text = (el.innerText || el.textContent || '').trim();
+                    const lang = el.getAttribute('hreflang') || el.getAttribute('lang') || '';
+                    if (href) found.push({ href, text, lang });
+                });
+            } catch(e) {}
+        }
+        return found;
+    }""")
+
+    for link in switcher_links:
+        href = link.get("href", "")
+        text = link.get("text", "").strip()
+        lang_attr = link.get("lang", "")
+
+        code = None
+        if lang_attr:
+            code = _normalize_lang(lang_attr)
+        elif re.match(r'^[A-Za-z]{2}(-[A-Za-z]{2})?$', text):
+            code = text[:2].upper()
+        else:
+            code = _extract_code_from_href(href, base_url)
+
+        if code and not _is_probable_lang_code(code):
+            code = None
+
+        _add_locale_candidate(locale_urls, code, href)
+
+    broad_links = page.evaluate("""() => {
+        return Array.from(document.querySelectorAll('a[href]')).map(el => ({
+            href: el.href || '',
+            text: (el.innerText || el.textContent || '').trim(),
+            lang: el.getAttribute('hreflang') || el.getAttribute('lang') || '',
+        }));
+    }""")
+
+    for link in broad_links:
+        href = link.get("href", "")
+        lang_attr = link.get("lang", "")
+        text = link.get("text", "")
+
+        code = None
+        if lang_attr:
+            code = _normalize_lang(lang_attr)
+        elif re.match(r'^[A-Za-z]{2}(-[A-Za-z]{2})?$', text):
+            code = text[:2].upper()
+        else:
+            code = _extract_code_from_href(href, base_url)
+
+        if code and _is_probable_lang_code(code):
+            _add_locale_candidate(locale_urls, code, href)
+
+    return locale_urls
+
+
+def _detect_language_selector_type(page) -> str:
+    result = page.evaluate("""() => {
+        if (document.querySelector('select option[lang], select[id*="lang"], select[class*="lang"]'))
+            return 'dropdown';
+        const flagImgs = document.querySelectorAll(
+            '[class*="lang"] img, [class*="language"] img, [id*="lang"] img'
+        );
+        if (flagImgs.length > 0) return 'dropdown with flags';
+        const langLinks = document.querySelectorAll(
+            '[class*="lang"] a, [class*="language"] a'
+        );
+        if (langLinks.length > 0) return 'text links';
+        return 'unknown';
+    }""")
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Public function 1 — Playwright crawler
+# ---------------------------------------------------------------------------
+
+def gather_pillar1_facts(
+    url: str,
+    target_languages: Optional[List[str]] = None,
+    marker_phrases_by_language: Optional[Dict[str, List[str]]] = None,
+    check_mixed_language: bool = False,
+) -> dict:
+    """
+    Load the client's website with a headless browser and extract:
+      - Available locale URLs (from hreflang or language switcher)
+      - Whether hreflang tags are present
+      - Language selector type
+
+    check_mixed_language: legacy string-based mixed language detection.
+    Defaults to False — use gather_mixed_language_issues() instead for
+    GPT-5-based detection that catches all languages, not just French.
+    """
+    result = {
+        "available_languages": [],
+        "available_language_variants": [],
+        "language_selector_type": "unknown",
+        "locale_urls": {},
+        "hreflang_tags": [],
+        "hreflang_present": False,
+        "hreflang_x_default_present": False,
+        "hreflang_x_default_url": None,
+        "mixed_language_issues": [],
+        "pages_checked": 0,
+        "crawler_ran": False,
+        "crawler_error": None,
+        "target_languages": [],
+    }
+
+    marker_map = marker_phrases_by_language or DEFAULT_MARKER_PHRASES_BY_LANGUAGE
+    normalized_marker_map = {
+        _normalize_lang(lang): [m.lower() for m in (markers or []) if isinstance(m, str) and m.strip()]
+        for lang, markers in marker_map.items()
+        if isinstance(lang, str)
+    }
+
+    if target_languages:
+        normalized_targets = [_normalize_lang(lang) for lang in target_languages if isinstance(lang, str) and lang.strip()]
+    else:
+        normalized_targets = sorted(normalized_marker_map.keys())
+
+    normalized_targets = [lang for lang in normalized_targets if lang in normalized_marker_map]
+    result["target_languages"] = normalized_targets
+
+    try:
+        from playwright.sync_api import sync_playwright
+
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.set_default_timeout(15000)
+
+            print(f"[crawler] Loading {url} ...")
+            page.goto(url, wait_until="domcontentloaded")
+
+            raw_hreflang = page.evaluate("""() => {
+                return Array.from(
+                    document.querySelectorAll('link[rel="alternate"][hreflang]')
+                ).map(el => ({ lang: el.hreflang.toLowerCase(), href: el.href }));
+            }""")
+            result["hreflang_tags"] = raw_hreflang
+            result["hreflang_present"] = len(raw_hreflang) > 0
+            x_default = next((t for t in raw_hreflang if t.get("lang") == "x-default"), None)
+            result["hreflang_x_default_present"] = x_default is not None
+            result["hreflang_x_default_url"] = x_default.get("href") if x_default else None
+
+            variant_set = {
+                str(t.get("lang", "")).replace("_", "-").upper()
+                for t in raw_hreflang
+                if t.get("lang") and str(t.get("lang")).lower() != "x-default"
+            }
+
+            locale_urls = _detect_locale_urls(page, url)
+
+            html_lang = page.evaluate("""() => {
+                return document.documentElement.lang
+                    || document.querySelector('meta[property="og:locale"]')?.getAttribute('content')
+                    || '';
+            }""")
+            print(f"[crawler] Homepage lang signal: {html_lang!r}")
+            if html_lang:
+                base_code = _normalize_lang(html_lang)
+                if _is_probable_lang_code(base_code) and base_code not in locale_urls:
+                    locale_urls[base_code] = url
+                    print(f"[crawler] Added base language {base_code} from html/og:locale")
+
+                html_variant = str(html_lang).replace("_", "-").upper()
+                if html_variant and html_variant != "X-DEFAULT":
+                    variant_set.add(html_variant)
+
+            result["locale_urls"] = locale_urls
+            result["available_languages"] = sorted(locale_urls.keys())
+            result["available_language_variants"] = (
+                sorted(variant_set) if variant_set else sorted(locale_urls.keys())
+            )
+            result["language_selector_type"] = _detect_language_selector_type(page)
+
+            print(f"[crawler] Found {len(locale_urls)} locales: {list(locale_urls.keys())}")
+
+            if check_mixed_language and normalized_targets:
+                for lang_code, locale_url in locale_urls.items():
+                    try:
+                        print(f"[crawler] Checking locale {lang_code}: {locale_url}")
+                        page.goto(locale_url, wait_until="domcontentloaded")
+                        texts = _extract_interactive_texts(page)
+                        result["pages_checked"] += 1
+
+                        locale_base_lang = _normalize_lang(lang_code)
+                        language_hits = []
+                        for target_lang in normalized_targets:
+                            if target_lang == locale_base_lang:
+                                continue
+                            markers = normalized_marker_map.get(target_lang, [])
+                            matched = _find_marker_strings(texts, markers)
+                            if matched:
+                                language_hits.append({
+                                    "language": target_lang,
+                                    "marker_strings_found": matched,
+                                })
+
+                        if language_hits:
+                            issue = {
+                                "locale": lang_code,
+                                "page_url": locale_url,
+                                "language_hits": language_hits,
+                            }
+                            fr_hit = next((h for h in language_hits if h["language"] == "FR"), None)
+                            if fr_hit:
+                                issue["french_strings_found"] = fr_hit["marker_strings_found"]
+                            result["mixed_language_issues"].append(issue)
+                            print(f"[crawler]   Mixed-language markers on {lang_code}: {language_hits}")
+                        else:
+                            print(f"[crawler]   No mixed-language markers on {lang_code}.")
+
+                    except Exception as page_err:
+                        print(f"[crawler]   Failed to check {lang_code}: {page_err}")
+            else:
+                print(f"[crawler] Skipping string-based mixed-language check (use gather_mixed_language_issues instead).")
+
+            browser.close()
+            result["crawler_ran"] = True
+            print(f"[crawler] Pillar 1 crawl complete. "
+                  f"{result['pages_checked']} pages checked, "
+                  f"{len(result['mixed_language_issues'])} locales with mixed-language markers.")
+
+    except Exception as e:
+        result["crawler_error"] = str(e)
+        print(f"[crawler] ERROR: {e}")
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Public function 2 — GPT-5 mixed language detection
+# ---------------------------------------------------------------------------
+
+def gather_mixed_language_issues(domain: str, locale_urls: dict) -> list:
+    """
+    Use GPT-5 with web search to find mixed-language UX issues on the site.
+
+    More thorough than string-based detection — catches any language bleeding
+    into the wrong locale, not just French. GPT is given the exact locale URLs
+    discovered by the crawler so it checks known pages rather than guessing.
+
+    locale_urls: dict of {lang_code: url} from gather_pillar1_facts()
+      e.g. {"EN": "https://example.com/en/", "FR": "https://example.com/fr/"}
+
+    Returns a list of issue dicts matching the crawler's mixed_language_issues format:
+      [{"locale": "EN", "page_url": "...", "language_hits": [{"language": "FR", "marker_strings_found": [...]}]}]
+    Returns [] if no issues found or if the call fails.
+    """
+    if not locale_urls:
+        return []
+
+    locale_lines = "\n".join(
+        f"  - {lang}: {url}" for lang, url in locale_urls.items()
+    )
+
+    prompt = f"""
+You are auditing the website {domain} for mixed-language UX issues.
+
+The crawler has confirmed the following locale pages exist. Visit each one:
+{locale_lines}
+
+A mixed-language issue is when a locale page (e.g. the English version) displays
+text in a different language — for example, a French CTA like "En savoir plus" or
+a German nav label on an English page. This is a localization quality problem.
+
+For each locale URL above:
+1. Visit the exact URL provided
+2. Identify any visible UI text (buttons, CTAs, navigation labels, headings,
+   card links, form labels) that appears to be in the wrong language for that locale
+3. Quote the specific strings you found
+
+Only report genuine cross-language contamination. Ignore:
+- Brand names, product names, or proper nouns
+- Technical strings (URLs, email addresses, code)
+- Content intentionally in another language (e.g. a quote or language-learning site)
+
+Return JSON only — no markdown fences.
+Return an empty array if no issues are found.
+
+[
+  {{
+    "locale": "EN",
+    "page_url": "https://example.com/en/",
+    "language_hits": [
+      {{
+        "language": "FR",
+        "marker_strings_found": ["En savoir plus", "Voir plus"]
+      }}
+    ]
+  }}
+]
+"""
+    try:
+        resp = openai_client.responses.create(
+            model="gpt-5",
+            tools=[{"type": "web_search"}],
+            input=prompt,
+        )
+        usage = getattr(resp, "usage", None)
+        if usage:
+            print(
+                f"[pillar1 mixed-lang tokens] "
+                f"input={getattr(usage, 'input_tokens', '?')}  "
+                f"output={getattr(usage, 'output_tokens', '?')}  "
+                f"total={getattr(usage, 'total_tokens', '?')}"
+            )
+        raw = resp.output_text
+        clean = re.sub(r"^```(?:json)?\s*", "", raw.strip())
+        clean = re.sub(r"\s*```$", "", clean)
+        result = json.loads(clean)
+        if not isinstance(result, list):
+            return []
+        # Basic schema validation — drop malformed items
+        valid = []
+        for item in result:
+            if (
+                isinstance(item, dict)
+                and isinstance(item.get("locale"), str)
+                and isinstance(item.get("page_url"), str)
+                and isinstance(item.get("language_hits"), list)
+            ):
+                valid.append(item)
+        return valid
+    except Exception as e:
+        print(f"  [warn] gather_mixed_language_issues failed: {e}")
+        return []

@@ -560,66 +560,8 @@ def gather_pillar2_facts(
 
     time.sleep(_PSI_DELAY)
 
-    # 3. Locale page PSI - mobile + desktop, skip if same URL as homepage
-    def _norm_url(u: str) -> str:
-        """Normalize for dedup: lowercase scheme+host+path, strip trailing slash and query."""
-        p = urlparse(u)
-        return f"{p.scheme.lower()}://{p.netloc.lower()}{p.path.rstrip('/') or '/'}"
-
-    if locale_urls:
-        homepage_norm = _norm_url(url)
-        for lang, locale_url in locale_urls.items():
-            if _norm_url(locale_url) == homepage_norm:
-                continue
-            print(f"[p2]   PSI locale {lang} mobile: {locale_url} ...")
-            locale_mobile = gather_pagespeed_data(locale_url, strategy="mobile", api_key=api_key)
-            if locale_mobile.get("psi_ran"):
-                result["pages_tested"] += 1
-            time.sleep(_PSI_DELAY)
-
-            print(f"[p2]   PSI locale {lang} desktop: {locale_url} ...")
-            locale_desktop = gather_pagespeed_data(locale_url, strategy="desktop", api_key=api_key)
-            if locale_desktop.get("psi_ran"):
-                result["pages_tested"] += 1
-            time.sleep(_PSI_DELAY)
-
-            result["locale_psi_results"].append({
-                "lang": lang,
-                "url": locale_url,
-                # Mobile
-                "performance_score": locale_mobile.get("performance_score"),
-                "seo_score": locale_mobile.get("seo_score"),
-                "lcp": locale_mobile.get("lcp"),
-                "cls": locale_mobile.get("cls"),
-                "has_meta_description": locale_mobile.get("has_meta_description"),
-                "hreflang_audit_pass": locale_mobile.get("hreflang_audit_pass"),
-                "psi_ran": locale_mobile.get("psi_ran"),
-                "psi_error": locale_mobile.get("psi_error"),
-                # Desktop
-                "performance_score_desktop": locale_desktop.get("performance_score"),
-                "lcp_desktop": locale_desktop.get("lcp"),
-                "cls_desktop": locale_desktop.get("cls"),
-                "psi_ran_desktop": locale_desktop.get("psi_ran"),
-                "psi_error_desktop": locale_desktop.get("psi_error"),
-            })
-
-        mobile_scores = [
-            r["performance_score"] for r in result["locale_psi_results"]
-            if r.get("psi_ran") and r.get("performance_score") is not None
-        ]
-        if mobile_scores:
-            result["locale_performance_min"] = min(mobile_scores)
-            result["locale_performance_max"] = max(mobile_scores)
-            result["locale_performance_avg"] = round(sum(mobile_scores) / len(mobile_scores), 1)
-
-        desktop_scores = [
-            r["performance_score_desktop"] for r in result["locale_psi_results"]
-            if r.get("psi_ran_desktop") and r.get("performance_score_desktop") is not None
-        ]
-        if desktop_scores:
-            result["locale_desktop_performance_min"] = min(desktop_scores)
-            result["locale_desktop_performance_max"] = max(desktop_scores)
-            result["locale_desktop_performance_avg"] = round(sum(desktop_scores) / len(desktop_scores), 1)
+    # 3. Locale page PSI - disabled (not used in UI or generate_ui_content)
+    # Re-enable when locale performance benchmarking is needed.
 
     # 4. Homepage technical checks
     print(f"[p2]   Homepage technical checks ...")

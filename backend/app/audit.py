@@ -26,12 +26,20 @@ client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
 # Helper
 
-def _parse_json(text: str) -> dict:
+def _parse_json(text: str, label: str = "") -> dict:
     """Parse JSON from a model response, stripping markdown fences if present."""
     text = text.strip()
     text = re.sub(r"^```(?:json)?\s*", "", text)
     text = re.sub(r"\s*```$", "", text)
-    return json.loads(text.strip())
+    text = text.strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as e:
+        prefix = f"[{label}] " if label else ""
+        print(f"{prefix}JSON parse error: {e}")
+        print(f"{prefix}Response length: {len(text)} chars")
+        print(f"{prefix}Last 300 chars: {text[-300:]!r}")
+        raise
 
 
 # Step 1: Data Gathering  #
@@ -88,9 +96,12 @@ def gather_all_client_data(url: str, company_name: str, crawler_facts: dict = No
         else:
             ml_detail = "None detected (all locale pages checked)"
 
-        ml_detail_json = json.dumps(ml_issues, ensure_ascii=False)
+        # Truncate to first 5 issues to keep prompt length manageable
+        ml_detail_json = json.dumps(ml_issues[:5], ensure_ascii=False)
         locale_urls_json = json.dumps(crawler_facts.get("locale_urls", {}), ensure_ascii=False)
-        hreflang_tags_json = json.dumps(crawler_facts.get("hreflang_tags", []), ensure_ascii=False)
+        hreflang_tags = crawler_facts.get("hreflang_tags", [])
+        print(f"[audit]   hreflang tags count: {len(hreflang_tags)}")
+        hreflang_tags_json = json.dumps(hreflang_tags, ensure_ascii=False)
         target_langs_json = json.dumps(crawler_facts.get("target_languages", []), ensure_ascii=False)
         available_lang_variants_json = json.dumps(
             crawler_facts.get("available_language_variants", crawler_facts.get("available_languages", [])),
@@ -153,7 +164,7 @@ Return ONLY a valid JSON object with no markdown fences:
     "pages_checked": {crawler_facts.get('pages_checked', 0)},
     "target_languages": {target_langs_json},
     "mixed_language_ux_issues_detail": {ml_detail_json},
-  "mixed_language_ux_issues": "{ml_detail}",
+  "mixed_language_ux_issues": {json.dumps(ml_detail)},
   "translation_quality_notes": "...",
   "lcr_notes": "...",
   "estimated_monthly_traffic": "500K-1M",
@@ -210,14 +221,27 @@ Return ONLY a valid JSON object with no markdown fences:
     resp1 = client.chat.completions.create(model="gpt-4o-search-preview", messages=messages)
     p1_text = resp1.choices[0].message.content
     messages.append({"role": "assistant", "content": p1_text})
-    pillar1_data = _parse_json(p1_text)
+    pillar1_data = _parse_json(p1_text, label="Turn1-Globalization")
     print("[audit]   Turn 1 (Globalization) complete.")
 
     # ------------------------------------------------------------------
-    # Turn 2: Accessibility & Compliance
+    # Turn 2: Accessibility & Compliance (independent call — avoids TPM ceiling)
+    # Context injected: URL, company name, available languages + locale URLs from
+    # the crawler so GPT can infer the applicable regulatory framework (GDPR, RGAA,
+    # ADA, etc.) without needing the full Turn 1 conversation history.
     # ------------------------------------------------------------------
-    messages.append({"role": "user", "content": f"""
-Now audit the same website ({url}) for accessibility and legal compliance.
+    available_languages = pillar1_data.get("available_languages", [])
+    locale_urls = pillar1_data.get("locale_urls", {})
+    locale_urls_json = json.dumps(locale_urls, ensure_ascii=False)
+
+    turn2_prompt = f"""
+You are auditing the website {url} ({company_name}) for accessibility and legal compliance.
+
+Context from direct site analysis:
+- Available languages: {available_languages}
+- Locale URLs: {locale_urls_json}
+
+Use the languages and locale URLs above to infer the company's likely region(s) and applicable regulations (e.g., GDPR/CNIL/RGAA for French sites, ADA/WCAG for US-facing sites, EN 301 549 for EU public sector).
 
 Search the website and answer the following:
 1. Does the website have an accessibility statement? (yes/no, and URL if yes)
@@ -257,74 +281,17 @@ Return ONLY a valid JSON object with no markdown fences:
   "applicable_regulations": ["GDPR", "CNIL", "RGAA"],
   "accessibility_lawsuits": []
 }}
-"""})
+"""
 
-    resp2 = client.chat.completions.create(model="gpt-4o-search-preview", messages=messages)
+    resp2 = client.chat.completions.create(
+        model="gpt-4o-search-preview",
+        messages=[{"role": "user", "content": turn2_prompt}],
+    )
     p3_text = resp2.choices[0].message.content
-    messages.append({"role": "assistant", "content": p3_text})
-    pillar3_data = _parse_json(p3_text)
+    pillar3_data = _parse_json(p3_text, label="Turn2-Accessibility")
     print("[audit]   Turn 2 (Accessibility) complete.")
 
-    # ------------------------------------------------------------------
-    # Turn 3: Online Reputation
-    # ------------------------------------------------------------------
-    messages.append({"role": "user", "content": f"""
-Now audit the online reputation of the same company ({company_name}, {url}).
-
-For social media: search each platform directly by company name. Even if exact real-time counts are unavailable, provide your best estimate from any recent public data. Do not return null if an approximation is findable - use "approx. X" if needed.
-
-Search online and answer the following:
-1. Social media presence - search each platform directly:
-   - LinkedIn: search "{company_name} LinkedIn" for their company page URL and follower count
-   - X (Twitter): search for their official handle, note follower count and most recent post date
-   - Instagram: search "{company_name} Instagram" for profile URL and follower count
-   - Facebook: search "{company_name} Facebook" for page URL and like/follower count
-   - YouTube: search "{company_name} YouTube" for channel URL and subscriber count
-2. Trustpilot profile? Score (out of 5), total number of reviews, and response rate if available.
-3. Google Reviews? Score and approximate number of reviews.
-4. Glassdoor profile? Rating, number of reviews, CEO approval rating, and "recommend to a friend" percentage if available.
-5. G2 or Capterra profile? Score and number of reviews if applicable (B2B companies).
-6. Any regulatory approvals, certifications, or industry authorizations that serve as credibility assets (e.g., ISO certifications, government biocide authorizations, CE marks, awards). Include dates if found.
-7. Any trade fair, conference, or industry event presence noted online (e.g., MEDICA, CPhI, Interclean). List by name and year.
-8. Notable news articles, press releases, or industry coverage in the past 12-18 months. Include source and date where possible.
-9. Any known controversies, lawsuits, data breaches, or reputational issues?
-10. Overall brand sentiment online (positive / neutral / negative) with a brief justification.
-
-Return ONLY a valid JSON object with no markdown fences:
-{{
-  "social_media": {{
-    "linkedin": {{"url": "https://linkedin.com/company/...", "followers": "1.5K"}},
-    "twitter": {{"url": "https://twitter.com/...", "followers": "approx. 400", "last_active": "2023"}},
-    "instagram": {{"url": "https://instagram.com/...", "followers": "268"}},
-    "facebook": {{"url": "https://facebook.com/...", "followers": "289"}},
-    "youtube": {{"url": "https://youtube.com/...", "subscribers": "approx. 100"}}
-  }},
-  "trustpilot_score": null,
-  "trustpilot_reviews": null,
-  "trustpilot_response_rate": null,
-  "google_reviews_score": null,
-  "google_reviews_count": null,
-  "glassdoor_score": 3.4,
-  "glassdoor_reviews": 10,
-  "glassdoor_ceo_approval": "76%",
-  "glassdoor_recommend": "76%",
-  "g2_score": null,
-  "g2_reviews": null,
-  "credibility_assets": ["EU Union Authorisation for H2O2 biocide product (Sept 2023)", "ISO 9001 certified"],
-  "trade_fair_presence": ["MEDICA 2024", "World Health Expo Dubai 2026"],
-  "recent_news": ["Company receives EU biocide authorization - press release, Sept 2023"],
-  "controversies": [],
-  "overall_sentiment": "neutral",
-  "sentiment_justification": "Limited public reviews but positive credibility through regulatory certifications and trade fair presence."
-}}
-"""})
-
-    resp3 = client.chat.completions.create(model="gpt-4o-search-preview", messages=messages)
-    p4_text = resp3.choices[0].message.content
-    pillar4_data = _parse_json(p4_text)
-    print("[audit]   Turn 3 (Online Reputation) complete.")
-
-    return pillar1_data, pillar3_data, pillar4_data
+    return pillar1_data, pillar3_data
 
 
 def gather_competitor_benchmark_data(url: str, crawler_available_languages: list = None) -> dict:
@@ -722,13 +689,42 @@ def generate_pillar4(facts: dict) -> dict:
     company_name = facts["company_name"]
     cf = facts["competitor_facts"]
 
-    # Flatten social media for clean display in prompt
+    # Format social media with followers + last_active
     social = p4.get("social_media", {})
-    social_str = ", ".join(
-        f"{platform}: {data.get('followers') or data.get('subscribers') or 'N/A'} followers"
-        for platform, data in social.items()
-        if isinstance(data, dict) and data.get("url")
-    ) or "No active profiles found"
+    social_lines = []
+    for platform, data in social.items():
+        if not isinstance(data, dict) or not data.get("url"):
+            continue
+        count = data.get("followers") or data.get("subscribers") or "N/A"
+        last = data.get("last_active")
+        note = data.get("note")
+        line = f"  {platform}: {data['url']} | {count} followers"
+        if last:
+            line += f", last active: {last}"
+        if note:
+            line += f" ({note})"
+        social_lines.append(line)
+    social_str = "\n".join(social_lines) if social_lines else "  No active profiles found"
+
+    # Format trade fair presence (list of objects)
+    trade_fairs = p4.get("trade_fair_presence", [])
+    if trade_fairs and isinstance(trade_fairs[0], dict):
+        trade_str = "; ".join(
+            f"{t.get('event')} ({t.get('location')}, {t.get('dates')})"
+            for t in trade_fairs
+        )
+    else:
+        trade_str = ", ".join(str(t) for t in trade_fairs) if trade_fairs else "None found"
+
+    # Format controversies (list of objects or strings)
+    controversies = p4.get("controversies", [])
+    if controversies and isinstance(controversies[0], dict):
+        controversy_str = "; ".join(
+            f"{c.get('date', 'N/A')}: {c.get('issue', '')}"
+            for c in controversies
+        )
+    else:
+        controversy_str = "; ".join(str(c) for c in controversies) if controversies else "None identified"
 
     competitor_data_str = "\n".join(
         f"- {c.get('company_name', f'Competitor {i+1}')}: "
@@ -749,15 +745,16 @@ def generate_pillar4(facts: dict) -> dict:
 Write Pillar 4: Online Reputation for {company_name} ({facts['url']}).
 
 CLIENT FACTS - use these exactly:
-- Social media presence: {social_str}
-- Trustpilot: {p4.get('trustpilot_score', 'N/A')} score ({p4.get('trustpilot_reviews', 'N/A')} reviews, {p4.get('trustpilot_response_rate', 'N/A')} response rate)
-- Google Reviews: {p4.get('google_reviews_score', 'N/A')} score ({p4.get('google_reviews_count', 'N/A')} reviews)
-- Glassdoor: {p4.get('glassdoor_score', 'N/A')} rating ({p4.get('glassdoor_reviews', 'N/A')} reviews, CEO approval: {p4.get('glassdoor_ceo_approval', 'N/A')}, recommend to a friend: {p4.get('glassdoor_recommend', 'N/A')})
-- G2/Capterra: {p4.get('g2_score', 'N/A')} score ({p4.get('g2_reviews', 'N/A')} reviews)
+Social media:
+{social_str}
+- Trustpilot: {p4.get('trustpilot_score', 'N/A')} score ({p4.get('trustpilot_reviews', 'N/A')} reviews)
+- Google Reviews: {p4.get('google_reviews_score', 'N/A')} score ({p4.get('google_reviews_count', 'N/A')} reviews){f" ({p4['google_reviews_note']})" if p4.get('google_reviews_note') else ""}
+- Glassdoor: {p4.get('glassdoor_score', 'N/A')} rating ({p4.get('glassdoor_reviews', 'N/A')} reviews, CEO approval: {p4.get('glassdoor_ceo_approval', 'N/A')}%, recommend: {p4.get('glassdoor_recommend', 'N/A')}%){f" ({p4['glassdoor_note']})" if p4.get('glassdoor_note') else ""}
+- Indeed: {p4.get('indeed_score', 'N/A')} rating ({p4.get('indeed_reviews', 'N/A')} reviews){f" ({p4['indeed_note']})" if p4.get('indeed_note') else ""}
 - Credibility assets: {p4.get('credibility_assets', [])}
-- Trade fair presence: {p4.get('trade_fair_presence', [])}
+- Trade fair presence: {trade_str}
 - Recent news: {p4.get('recent_news', [])}
-- Controversies: {p4.get('controversies', [])}
+- Controversies: {controversy_str}
 - Overall sentiment: {p4.get('overall_sentiment', 'N/A')} - {p4.get('sentiment_justification', '')}
 
 COMPETITOR BENCHMARK DATA - already researched, use as-is:
@@ -1151,6 +1148,167 @@ Return as JSON:
 
 
 # ---------------------------------------------------------------------------
+# Step 5: Generate UI content directly from facts (GPT-5)
+# ---------------------------------------------------------------------------
+
+def generate_ui_content(facts: dict) -> dict:
+    """
+    Generate all UI-ready text for the results dashboard.
+    Uses GPT-5 from the facts pack directly — no web search needed.
+    Returns structured dict: executive_summary, per-pillar content, competitive_landscape, top_recommendations.
+    """
+    p1 = facts["pillar_1_globalization"]
+    p2 = facts["pillar_2_website_health"]
+    p3 = facts["pillar_3_accessibility"]
+    p4 = facts["pillar_4_online_reputation"]
+    cf = facts["competitor_facts"]
+    company_name = facts["company_name"]
+    url = facts["url"]
+
+    # Social media concise summary (followers + last active)
+    social = p4.get("social_media", {})
+    social_summary = ", ".join(
+        f"{platform}: {d.get('followers') or d.get('subscribers') or 'N/A'} followers"
+        + (f" (last active: {d['last_active']})" if d.get("last_active") else "")
+        for platform, d in social.items()
+        if isinstance(d, dict) and d.get("url")
+    ) or "No active profiles"
+
+    # Mixed language issues
+    ml_issues = p1.get("mixed_language_issues", [])
+    ml_summary = f"{len(ml_issues)} locale(s) affected" if ml_issues else "None detected"
+
+    # Competitor summary
+    comp_summary = "\n".join(
+        f"- {c.get('company_name', f'Competitor {i+1}')}: "
+        f"{len(c.get('available_languages', []))} languages, LCR {c.get('lcr_score', 'N/A')}%, "
+        f"sentiment {c.get('overall_sentiment', 'N/A')}, LinkedIn {c.get('linkedin_followers', 'N/A')}"
+        for i, c in enumerate(cf)
+    )
+
+    # PSI summary
+    perf_mobile = p2.get("performance_score_mobile")
+    perf_desktop = p2.get("performance_score_desktop")
+    site_health = p2.get("site_health_score")
+    psi_summary = (
+        f"Mobile performance {perf_mobile}/100, desktop {perf_desktop}/100, site health {site_health}/100"
+        if perf_mobile is not None
+        else "PageSpeed data not available"
+    )
+
+    prompt = f"""You are a senior digital audit expert writing a concise, punchy executive dashboard for a pre-audit report.
+
+Company: {company_name}
+Website: {url}
+
+PILLAR 1 - GLOBALIZATION:
+- Available languages: {p1.get('available_languages', [])} ({p1.get('lcr_available', 0)} of {p1.get('lcr_required', 0)} required)
+- Required languages: {p1.get('required_languages', [])}
+- LCR score: {p1.get('lcr_score', 0)}% ({p1.get('lcr_tier', 'N/A')})
+- Geographic presence: {p1.get('geographic_presence', 'N/A')}
+- Hreflang: {'Present' if p1.get('hreflang_present') else 'Missing'}
+- x-default: {'Present' if p1.get('hreflang_x_default_present') else 'Missing'}
+- Mixed language issues: {ml_summary}
+- Translation quality: {p1.get('translation_quality_notes', 'N/A')}
+- Regional/market-specific sites: {p1.get('regional_sites', [])}
+
+PILLAR 2 - WEBSITE HEALTH:
+- {psi_summary}
+- SEO score (mobile): {p2.get('seo_score_mobile', 'N/A')}, Accessibility score (mobile): {p2.get('accessibility_score_mobile', 'N/A')}
+- LCP mobile: {p2.get('lcp_mobile', 'N/A')}, CLS: {p2.get('cls_mobile', 'N/A')}
+- Core Web Vitals field data: LCP {p2.get('cwv_lcp_category', 'N/A')}, CLS {p2.get('cwv_cls_category', 'N/A')}, INP {p2.get('cwv_inp_category', 'N/A')}
+- Performance issues: render-blocking resources: {p2.get('render_blocking_resources', False)}, unused JavaScript: {p2.get('unused_javascript', False)}, unused CSS: {p2.get('unused_css', False)}
+- Pages crawled: {p2.get('pages_crawled', 0)}, broken links: {p2.get('broken_internal_urls', 0)}, missing meta descriptions: {p2.get('missing_meta_descriptions', 0)}
+- HSTS: {'Yes' if p2.get('hsts_present') else 'No'}, HTTPS redirect: {'Yes' if p2.get('https_redirect') else 'No'}
+- Schema markup: {p2.get('schema_types', 'None detected')}
+
+PILLAR 3 - ACCESSIBILITY & COMPLIANCE:
+- WCAG level claimed: {p3.get('wcag_level_claimed', 'undeclared')}
+- Accessibility statement: {'Yes' if p3.get('has_accessibility_statement') else 'No'}
+- Cookie consent: {'Yes' if p3.get('has_cookie_banner') else 'No'}
+- Applicable regulations: {p3.get('applicable_regulations', [])}
+- Key issues: {p3.get('wcag_issues', [])}
+- Alt text coverage: {p3.get('alt_text_coverage', 'unknown')}, Keyboard nav: {p3.get('keyboard_navigation', 'unknown')}
+
+PILLAR 4 - ONLINE REPUTATION:
+- Overall sentiment: {p4.get('overall_sentiment', 'N/A')} - {p4.get('sentiment_justification', '')}
+- Social media: {social_summary}
+- Trustpilot: {p4.get('trustpilot_score', 'N/A')} ({p4.get('trustpilot_reviews', 'N/A')} reviews)
+- Google Reviews: {p4.get('google_reviews_score', 'N/A')} ({p4.get('google_reviews_count', 'N/A')} reviews)
+- Glassdoor: {p4.get('glassdoor_score', 'N/A')} ({p4.get('glassdoor_reviews', 'N/A')} reviews)
+- Indeed: {p4.get('indeed_score', 'N/A')} ({p4.get('indeed_reviews', 'N/A')} reviews)
+- Trade fair presence: {p4.get('trade_fair_presence', [])}
+- Credibility assets: {p4.get('credibility_assets', [])}
+- Recent news: {p4.get('recent_news', [])}
+- Controversies: {p4.get('controversies', [])}
+
+COMPETITORS:
+{comp_summary}
+
+Write in US English. No em dashes. No markdown links or citations. Professional but direct tone.
+Each finding and recommendation must be one concise sentence. Include specific numbers where available.
+
+Return ONLY a valid JSON object with no markdown fences:
+{{
+  "executive_summary": [
+    "Cross-pillar bullet 1 - most impactful finding with a specific number",
+    "Cross-pillar bullet 2 - second most important gap or strength",
+    "Cross-pillar bullet 3 - key competitive or compliance insight"
+  ],
+  "pillar_1": {{
+    "headline": "Short 6-10 word headline summarizing globalization status",
+    "findings": ["Finding with specific data", "Finding 2", "Finding 3"],
+    "recommendations": ["Top action 1", "Top action 2", "Top action 3"]
+  }},
+  "pillar_2": {{
+    "headline": "Short 6-10 word headline summarizing website health",
+    "findings": ["Finding with specific data", "Finding 2", "Finding 3"],
+    "recommendations": ["Top action 1", "Top action 2", "Top action 3"]
+  }},
+  "pillar_3": {{
+    "headline": "Short 6-10 word headline summarizing accessibility status",
+    "findings": ["Finding with specific data", "Finding 2", "Finding 3"],
+    "recommendations": ["Top action 1", "Top action 2", "Top action 3"]
+  }},
+  "pillar_4": {{
+    "headline": "Short 6-10 word headline summarizing online reputation",
+    "findings": ["Finding with specific data", "Finding 2", "Finding 3"],
+    "recommendations": ["Top action 1", "Top action 2", "Top action 3"]
+  }},
+  "competitive_landscape": {{
+    "summary": "2-3 sentences positioning the client within the competitive set",
+    "client_advantages": ["Advantage 1", "Advantage 2"],
+    "client_gaps": ["Gap 1 vs specific competitor", "Gap 2"]
+  }},
+  "top_recommendations": [
+    "Priority 1 cross-pillar action with expected impact",
+    "Priority 2 cross-pillar action",
+    "Priority 3 cross-pillar action",
+    "Priority 4 cross-pillar action",
+    "Priority 5 cross-pillar action"
+  ]
+}}"""
+
+    try:
+        resp = client.responses.create(
+            model="gpt-5",
+            input=prompt,
+        )
+        usage = getattr(resp, "usage", None)
+        if usage:
+            print(
+                f"[audit] generate_ui_content tokens: "
+                f"input={getattr(usage, 'input_tokens', '?')} "
+                f"output={getattr(usage, 'output_tokens', '?')}"
+            )
+        raw = resp.output_text
+        return _parse_json(raw)
+    except Exception as e:
+        print(f"[audit] generate_ui_content failed: {e}")
+        return {}
+
+
+# ---------------------------------------------------------------------------
 # Main pipeline entry point
 # ---------------------------------------------------------------------------
 
@@ -1164,21 +1322,28 @@ def run_audit(url: str, company_name: str, competitors: list, semrush_pdf_path: 
 
     # Phase 0: Playwright crawler - client site
     try:
-        from app.crawler import gather_pillar1_facts
+        from app.pillar1_gather import gather_pillar1_facts, gather_mixed_language_issues
     except ImportError as _import_err:
-        print(f"[audit] WARNING: Could not import crawler: {_import_err}")
+        print(f"[audit] WARNING: Could not import pillar1_gather: {_import_err}")
         gather_pillar1_facts = None
+        gather_mixed_language_issues = None
 
     print("[audit] Phase 0: Running Playwright crawler for client site...")
     client_crawler = None
     try:
         if gather_pillar1_facts:
-            client_crawler = gather_pillar1_facts(url, check_mixed_language=True)
+            client_crawler = gather_pillar1_facts(url, check_mixed_language=False)
             if client_crawler.get("crawler_ran"):
                 print(f"[audit]   Crawler OK: {client_crawler.get('available_languages')} | "
                       f"hreflang: {client_crawler.get('hreflang_present')} | "
-                      f"x-default: {client_crawler.get('hreflang_x_default_present')} | "
-                      f"mixed-lang issues: {len(client_crawler.get('mixed_language_issues', []))}")
+                      f"x-default: {client_crawler.get('hreflang_x_default_present')}")
+                if gather_mixed_language_issues:
+                    print("[audit]   Running GPT-5 mixed language check...")
+                    ml_issues = gather_mixed_language_issues(
+                        url, client_crawler.get("locale_urls", {})
+                    )
+                    client_crawler["mixed_language_issues"] = ml_issues
+                    print(f"[audit]   Mixed language issues found: {len(ml_issues)}")
             else:
                 print(f"[audit]   Crawler did not run: {client_crawler.get('crawler_error')}")
                 client_crawler = None
@@ -1188,11 +1353,25 @@ def run_audit(url: str, company_name: str, competitors: list, semrush_pdf_path: 
         print(f"[audit]   Crawler exception: {e}")
         client_crawler = None
 
-    # Phase 1: Gather client data (stateful 3-turn conversation)
-    print("[audit] Phase 1: Gathering client data (stateful conversation)...")
-    pillar1_data, pillar3_data, pillar4_data = gather_all_client_data(
+    # Phase 1: Gather client data (Turns 1+2: globalization + accessibility)
+    print("[audit] Phase 1: Gathering client data (Turns 1+2)...")
+    pillar1_data, pillar3_data = gather_all_client_data(
         url, company_name, crawler_facts=client_crawler
     )
+
+    # Phase 1b: Gather Pillar 4 (online reputation) via pillar4_gather pipeline
+    print("[audit] Phase 1b: Gathering Pillar 4 (online reputation)...")
+    pillar4_data = {}
+    try:
+        try:
+            from app.pillar4_gather import gather_pillar4_facts as _gather_p4
+        except ImportError:
+            from pillar4_gather import gather_pillar4_facts as _gather_p4
+        pillar4_data = _gather_p4(url, company_name)
+        print(f"[audit]   Pillar 4 complete. Sentiment: {pillar4_data.get('overall_sentiment', 'N/A')}")
+    except Exception as e:
+        print(f"[audit]   Pillar 4 gathering failed: {e}")
+        pillar4_data = {}
 
     # Merge crawler-only fields into pillar1_data (these never come from GPT)
     if client_crawler and client_crawler.get("crawler_ran"):
@@ -1267,40 +1446,31 @@ def run_audit(url: str, company_name: str, competitors: list, semrush_pdf_path: 
         pillar2=pillar2_data,
     )
 
-    # Phase 3: Generate pillar content
-    print("[audit] Generating Pillar 1 (Globalization)...")
-    p1_content = generate_pillar1(facts)
+    # Phase 3: Generate pillar content via GPT-4o (kept for future PDF generation)
+    # NOTE: Currently skipped. UI content is generated directly from the facts pack via GPT-5 below.
+    # Uncomment this block when PDF generation is added.
+    #
+    # print("[audit] Generating Pillar 1 (Globalization)...")
+    # p1_content = generate_pillar1(facts)
+    # print("[audit] Generating Pillar 2 (Website Health)...")
+    # p2_content = generate_pillar2(facts)
+    # print("[audit] Generating Pillar 3 (Accessibility)...")
+    # p3_content = generate_pillar3(facts)
+    # print("[audit] Generating Pillar 4 (Online Reputation)...")
+    # p4_content = generate_pillar4(facts)
+    # pillar_summaries = {"pillar_1": p1_content, "pillar_2": p2_content, "pillar_3": p3_content, "pillar_4": p4_content}
+    # print("[audit] Generating Competitive Landscape...")
+    # landscape = generate_competitive_landscape(facts, pillar_summaries)
+    # print("[audit] Generating Conclusion...")
+    # conclusion = generate_conclusion(facts, pillar_summaries)
 
-    print("[audit] Generating Pillar 2 (Website Health)...")
-    p2_content = generate_pillar2(facts)
-
-    print("[audit] Generating Pillar 3 (Accessibility)...")
-    p3_content = generate_pillar3(facts)
-
-    print("[audit] Generating Pillar 4 (Online Reputation)...")
-    p4_content = generate_pillar4(facts)
-
-    pillar_summaries = {
-        "pillar_1": p1_content,
-        "pillar_2": p2_content,
-        "pillar_3": p3_content,
-        "pillar_4": p4_content,
-    }
-
-    print("[audit] Generating Competitive Landscape...")
-    landscape = generate_competitive_landscape(facts, pillar_summaries)
-
-    print("[audit] Generating Conclusion...")
-    conclusion = generate_conclusion(facts, pillar_summaries)
+    # Phase 4: Generate UI content directly from facts pack (GPT-5)
+    print("[audit] Generating UI content from facts pack...")
+    ui_content = generate_ui_content(facts)
 
     print("[audit] Done!")
 
     return {
         "facts": facts,
-        "pillar_1": p1_content,
-        "pillar_2": p2_content,
-        "pillar_3": p3_content,
-        "pillar_4": p4_content,
-        "competitive_landscape": landscape,
-        "conclusion": conclusion,
+        "ui_content": ui_content,
     }

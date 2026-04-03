@@ -97,7 +97,7 @@ async def create_audit(
     competitor_1: str = Form(...),
     competitor_2: str = Form(...),
     competitor_3: str = Form(...),
-    semrush_pdf: UploadFile = File(...),
+    semrush_pdf: UploadFile = File(None),
 ):
     """Create a new audit job and start the pipeline in the background."""
     job_id = str(uuid.uuid4())
