@@ -151,20 +151,14 @@ Any observations on machine vs. professional translation, inconsistencies, or un
 STEP 5 - Traffic data:
 Approximate monthly organic traffic volume (from public sources if findable), and top 3-5 traffic source countries.
 
-Return ONLY a valid JSON object with no markdown fences:
+Return ONLY a valid JSON object with no markdown fences.
+Only return the fields below — do NOT include available_languages, available_language_variants,
+language_selector_type, locale_urls, hreflang_present, hreflang_tags, pages_checked,
+target_languages, or mixed_language_ux_issues_detail as those are already known:
 {{
-  "available_languages": {crawler_facts['available_languages']},
-    "available_language_variants": {available_lang_variants_json},
-  "language_selector_type": "{crawler_facts['language_selector_type']}",
-    "locale_urls": {locale_urls_json},
   "geographic_presence": "Present in 90+ countries across Europe (65%), MENA (7.5%), APAC (7.5%), Latin America (7.5%), North America (5%)",
   "required_languages": ["EN", "FR", "DE", "ES", "IT", "PT", "NL", "AR", "ZH", "JA", "KO", "RU", "TR", "PL"],
-  "hreflang_present": {str(crawler_facts['hreflang_present']).lower()},
-    "hreflang_tags": {hreflang_tags_json},
-    "pages_checked": {crawler_facts.get('pages_checked', 0)},
-    "target_languages": {target_langs_json},
-    "mixed_language_ux_issues_detail": {ml_detail_json},
-  "mixed_language_ux_issues": {json.dumps(ml_detail)},
+  "mixed_language_ux_issues": "Brief plain-text summary e.g. French CTAs found on German and English locale pages",
   "translation_quality_notes": "...",
   "lcr_notes": "...",
   "estimated_monthly_traffic": "500K-1M",
