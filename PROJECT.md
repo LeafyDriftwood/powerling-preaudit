@@ -4,7 +4,7 @@
 
 Automate the Powerling pre-audit report - a deliverable Powerling sends to prospective clients that analyzes their website across multiple digital pillars and benchmarks them against their competitors.
 
-The manual workflow currently is:
+The manual workflow was:
 1. Account manager gathers the client URL and competitor URLs
 2. Uses SEMrush manually for SEO/health data
 3. Feeds everything into a custom GPT via ChatGPT.com
@@ -17,44 +17,33 @@ The goal is to fully automate this: submit a URL → get a structured, professio
 
 ## Audit Structure (Pillars)
 
-The audit covers four pillars. Each pillar produces:
-- An intro sentence
-- Key findings intro paragraph
-- 5-7 key finding bullets
-- Impact paragraph
-- 5 recommendations
-- Expected ROI paragraph
-- Benchmark table (client vs. 3 competitors)
-
 ### Pillar 1: Globalization
-Assesses how well the website serves an international audience.
 - Language Coverage Rate (LCR) = (Available Languages / Required Languages) × 100
-- LCR is computed deterministically from gathered data - not AI-guessed
-- Language selector type, hreflang tags, translation quality, traffic by country
+- LCR computed deterministically from Playwright-crawled data - not AI-guessed
+- Hreflang tags, x-default, locale URLs, language selector type, mixed-language UX issues
+- Geographic presence, required languages, traffic estimates (GPT research)
 
-### Pillar 2: Website Health *(NOT YET IMPLEMENTED)*
-Intended to assess technical SEO, site speed, and crawlability.
-- Currently a placeholder: `"Google PageSpeed / SEO diagnostic integration pending."`
-- Planned: Google PageSpeed Insights API, SEMrush API (or equivalent), Core Web Vitals
+### Pillar 2: Website Health
+- Google PageSpeed Insights: performance, SEO, accessibility scores, Core Web Vitals (LCP, CLS, INP)
+- DataForSEO OnPage crawl: site health score, broken links, missing titles/meta/H1s, canonicals, thin content, crawl depth, orphan pages
+- Homepage technical checks: robots.txt, sitemap.xml, llms.txt, HSTS, HTTPS redirect, schema markup, H1
 
 ### Pillar 3: Accessibility & Compliance
-- WCAG issues, accessibility statement, cookie consent, privacy policy, ToS, sitemap
-- GDPR and ADA compliance indicators
-- Accessibility lawsuits from public record
-- Primary region detected to assess regulatory exposure
+- WCAG issues, accessibility statement, cookie consent (CMP provider), privacy policy, ToS, sitemap
+- GDPR/CNIL/RGAA/ADA compliance indicators
+- Cookie banner detected via Playwright (authoritative) - not GPT-inferred
+- Primary region + applicable regulations inferred from locale data
 
 ### Pillar 4: Online Reputation
-- Social media presence with follower counts (LinkedIn, X, Instagram, Facebook, YouTube)
-- Review scores and counts: Trustpilot, Google Reviews, Glassdoor, G2/Capterra
-- CEO approval rating (Glassdoor)
-- Recent news (past 12 months), controversies, overall sentiment
+- Social media: LinkedIn, X, Instagram, Facebook, YouTube (followers + last active)
+- YouTube channel verified via YouTube Data API v3 before GPT research
+- Review scores: Trustpilot, Google Reviews, Glassdoor (rating, CEO approval, % recommend), Indeed
+- Credibility assets, trade fair presence, recent news, controversies, overall sentiment
 
-### Competitive Landscape
-- One cross-pillar comparison table: client vs. 3 competitors, 4 pillar rows
-- Two-sentence intro paragraph
-
-### Conclusion
-- Positives, negatives, top 5 cross-pillar recommendations, combined ROI
+### Competitive Landscape + Conclusion
+- Stored in facts pack; generated via GPT-5 in `generate_ui_content()`
+- Competitive landscape: cross-pillar comparison table (client vs. 3 competitors)
+- Conclusion: positives, negatives, top 5 recommendations, combined ROI
 
 ---
 
@@ -64,13 +53,19 @@ Intended to assess technical SEO, site speed, and crawlability.
 - **FastAPI** - REST API server
 - **SQLite + SQLAlchemy** - Job persistence (status tracking, result storage)
 - **OpenAI Python SDK** - All AI calls
-  - `gpt-4o-search-preview` (Chat Completions) - web search/data gathering
-  - `gpt-4o` (Chat Completions) - report generation (no search)
+  - `gpt-4o-search-preview` (Chat Completions) - web search/data gathering (Turns 1+2, competitor research)
+  - `gpt-5` (Responses API) - UI content generation, mixed language detection, YouTube validation
+- **Playwright** - Headless browser for Pillar 1 crawler and cookie banner detection
+- **DataForSEO OnPage API** - Site crawl for Pillar 2
+- **Google PageSpeed Insights API** - Performance/SEO scores for Pillar 2
+- **YouTube Data API v3** - Channel search and validation for Pillar 4
 - **python-dotenv** - Environment variable loading
-- `OPENAI_API_KEY` stored in `backend/.env`
+- **beautifulsoup4** - HTML parsing for BFS crawler (legacy) and YouTube scraping
+- **tldextract** - Subdomain language detection in Pillar 1 crawler
+- **pdfplumber** - PDF parsing (SEMrush integration stub, not actively used)
 
 ### Frontend
-- **Next.js 16 App Router** (TypeScript)
+- **Next.js App Router** (TypeScript)
 - **Tailwind CSS**
 - **react-hot-toast** - Toast notifications
 
@@ -78,19 +73,29 @@ Intended to assess technical SEO, site speed, and crawlability.
 ```
 powerling-preaudit/
 ├── backend/
-│   ├── .env                  # OPENAI_API_KEY
-│   ├── audit_jobs.db         # SQLite DB (auto-created, gitignored)
+│   ├── .env                        # API keys (gitignored)
+│   ├── requirements.txt
+│   ├── audit_jobs.db               # SQLite DB (auto-created, gitignored)
+│   ├── test_pillar1_gather.py      # Test: Playwright crawler + mixed language check
+│   ├── test_pillar4_gather.py      # Test: Pillar 4 reputation pipeline
+│   ├── test_prompt.py              # Bare-bones GPT-5 prompt tester
 │   └── app/
-│       ├── __init__.py       # (may need to create if import issues)
-│       ├── audit.py          # Full pipeline logic
-│       └── main.py           # FastAPI app, DB models, endpoints
+│       ├── audit.py                # Full pipeline orchestration
+│       ├── main.py                 # FastAPI app, DB models, endpoints
+│       ├── pillar1_gather.py       # Playwright crawler + GPT-5 mixed language detection
+│       ├── pillar4_gather.py       # YouTube API + GPT-5 reputation research
+│       ├── website_health.py       # PSI + homepage technical checks orchestration
+│       └── dataforseo_crawl.py     # DataForSEO OnPage API crawl
 └── frontend/
     └── app/
         ├── layout.tsx
-        ├── page.tsx                      # Submission form
+        ├── page.tsx                          # Submission form
         └── audits/
+            ├── page.tsx                      # Audit list
             └── [job_id]/
-                └── page.tsx             # Job status polling page
+                ├── page.tsx                  # Job status polling + auto-redirect
+                └── result/
+                    └── page.tsx              # Results dashboard
 ```
 
 ---
@@ -101,18 +106,16 @@ powerling-preaudit/
 |--------|----------|-------------|
 | GET | `/health` | Health check |
 | POST | `/audits` | Submit a new audit job |
-| GET | `/audits/{job_id}` | Poll job status and metadata |
+| GET | `/audits/{job_id}` | Poll job status |
 | GET | `/audits/{job_id}/result` | Get the full completed report (JSON) |
 
-### POST /audits request body
-```json
-{
-  "url": "https://client.com",
-  "company_name": "Acme Corp",
-  "competitor_1": "https://competitor1.com",
-  "competitor_2": "https://competitor2.com",
-  "competitor_3": "https://competitor3.com"
-}
+### POST /audits request body (multipart/form-data)
+```
+url             string   Client website URL
+company_name    string   Client company name
+competitor_1    string   Competitor 1 URL
+competitor_2    string   Competitor 2 URL
+competitor_3    string   Competitor 3 URL
 ```
 
 ### Job Status Flow
@@ -123,45 +126,60 @@ pending → processing → completed
 
 ---
 
-## Pipeline (audit.py)
+## Pipeline (audit.py: run_audit)
 
-The pipeline runs as a **FastAPI BackgroundTask** after job creation. It is fully sequential (no concurrency) to support stateful conversations.
+Fully sequential - no concurrency. All phases run in order.
 
 ```
-Phase 1: gather_all_client_data(url, company_name)
-  └── Stateful 3-turn conversation with gpt-4o-search-preview
-        Turn 1 → Globalization data (languages, LCR, traffic)
-        Turn 2 → Accessibility & Compliance (model has Turn 1 context)
-        Turn 3 → Online Reputation (model has Turn 1+2 context)
+Phase 0: Playwright crawler - client site (pillar1_gather.py)
+  └── Extracts: hreflang tags, locale URLs, language selector type, cookie banner (CMP provider)
+  └── Followed by: GPT-5 mixed language check across locale pages
 
-Phase 2: For each competitor URL:
-  └── gather_competitor_benchmark_data(comp_url)
-        One call per competitor, gpt-4o-search-preview
-        Covers all benchmark dimensions in one shot
+Phase 0b: Website health data (website_health.py)
+  ├── Google PSI: homepage mobile + desktop
+  ├── DataForSEO OnPage crawl (up to 200 pages)
+  └── Homepage technical checks (robots.txt, sitemap, HSTS, schema, H1)
 
-Phase 3: build_facts_pack(...)
-  └── Merges all gathered data
-  └── Computes LCR deterministically for client and each competitor
+Phase 1: Client data gathering - 2 independent GPT calls (gpt-4o-search-preview)
+  ├── Turn 1: Globalization - geographic presence, required languages, traffic, regional sites
+  │           Crawler facts injected as authoritative (available_languages, hreflang, locale_urls)
+  │           GPT only fills in what crawler can't: geographic_presence, required_languages, traffic
+  └── Turn 2: Accessibility & Compliance - independent call, no Turn 1 history
+              Cookie banner injected as authoritative fact (Playwright-detected)
 
-Phase 4: Sequential generation with gpt-4o
-  ├── generate_pillar1(facts)
-  ├── generate_pillar3(facts)
-  ├── generate_pillar4(facts)
-  ├── generate_competitive_landscape(facts, pillar_summaries)
-  └── generate_conclusion(facts, pillar_summaries)
+Phase 1b: Online reputation (pillar4_gather.py)
+  ├── Step 1: YouTube Data API v3 channel search + domain validation
+  ├── Step 2: GPT-5 validation of ambiguous YouTube candidates (if needed)
+  ├── Step 3: Website footer scrape for social links (requests + BeautifulSoup)
+  └── Step 4: GPT-5 Responses API full reputation research (web search)
 
-Return: structured dict with facts + all pillar content
+Phase 2: Competitor data (one Playwright crawl + one gpt-4o-search-preview call per competitor)
+  └── Crawler provides authoritative available_languages; GPT fills in benchmark data
+
+Phase 3: build_facts_pack - merges all gathered data, computes LCR deterministically
+
+Phase 4 [COMMENTED OUT]: GPT-4o pillar narrative generation
+  └── Skipped. PDF export dropped from scope.
+
+Phase 5: GPT-5 generate_ui_content(facts)
+  └── Single Responses API call, no web search
+  └── Produces: executive_summary, per-pillar headlines/findings/recommendations,
+               competitive_landscape, top_recommendations
+
+Return: {"facts": {...}, "ui_content": {...}}
 ```
 
-### Key Design Decisions
-- **Unified Chat Completions API** throughout (no Responses API)
-- **gpt-4o-search-preview** for all web-search tasks - this is the correct model for real-time web access via Chat Completions
-- **gpt-4o** for generation - cheaper and faster since no search needed
-- **Stateful conversation** for client data so later turns benefit from context (e.g., Turn 3 "Online Reputation" already knows the company region from Turn 2)
-- **_parse_json() helper** strips markdown fences from model output before JSON parsing
-- **LCR computed deterministically** from the gathered available/required language lists - never AI-estimated
-- **Competitor facts gathered first** so generation calls are pure writing tasks with no hallucinated benchmarks
-- **response_format={"type": "json_object"}** on all generation calls for reliable output
+---
+
+## Key Design Decisions
+
+- **gpt-4o-search-preview** for web search tasks - hard 6000 TPM cap per request, so Turn 1 and Turn 2 are separate independent calls (not stateful) to avoid hitting the ceiling on large sites (64+ hreflang tags)
+- **gpt-5 Responses API** for UI content generation and mixed language detection - better reasoning, no TPM ceiling issue for these tasks
+- **Playwright as ground truth** - crawler-detected values always override GPT-inferred values. GPT fills in what the crawler cannot (geographic presence, required languages, traffic)
+- **Cookie banner via Playwright** - detects 9+ CMPs by script src URL, style tag IDs, window globals, and DOM elements. GTM-loaded CMPs get a 2.5s wait after page load. Injected into Turn 2 as authoritative fact.
+- **Turn 1 response schema** - only asks GPT to return fields it actually researches. All crawler-owned fields (hreflang_tags, locale_urls, available_languages, etc.) are excluded to prevent JSON truncation on large sites.
+- **LCR computed deterministically** from crawler-confirmed available_languages and GPT-inferred required_languages
+- **Phase 4 commented out** - GPT-4o pillar narrative generation not called. PDF export was dropped from scope; UI content comes directly from GPT-5 facts pack synthesis.
 
 ---
 
@@ -170,12 +188,13 @@ Return: structured dict with facts + all pillar content
 ### Backend
 ```bash
 cd backend
-pip install fastapi uvicorn sqlalchemy openai python-dotenv
+pip install -r requirements.txt
+playwright install chromium
 uvicorn app.main:app --reload
 # Runs on http://localhost:8000
 ```
 
-**Important:** If you change the DB schema (add columns to AuditJob), delete `audit_jobs.db` first:
+**Important:** If you change the DB schema, delete the DB first:
 ```bash
 rm backend/audit_jobs.db
 ```
@@ -188,55 +207,53 @@ npm run dev
 # Runs on http://localhost:3000
 ```
 
+### Required environment variables (backend/.env)
+```
+OPENAI_API_KEY=...
+GOOGLE_PAGESPEED_API_KEY=...
+DATAFORSEO_LOGIN=...
+DATAFORSEO_PASSWORD=...
+YOUTUBE_API_KEY=...   # same key as GOOGLE_PAGESPEED_API_KEY
+```
+
 ---
 
-## Current State (as of Feb 2026)
+## Current State (April 2026)
 
 ### What works
 - [x] Form submission (company name, URL, 3 competitor URLs)
 - [x] Job creation and persistence in SQLite
 - [x] Background pipeline execution (pending → processing → completed/error)
-- [x] Status polling page (polls every 2 seconds, stops on terminal state)
-- [x] Full audit pipeline for Pillars 1, 3, 4
-- [x] Competitor data gathering
-- [x] Competitive landscape and conclusion generation
-- [x] Result storage in DB
-- [x] Result retrieval endpoint (`GET /audits/{job_id}/result`)
+- [x] Status polling page with auto-redirect to results on completion
+- [x] Playwright crawler: hreflang, locale URLs, language selector, cookie banner detection (9+ CMPs)
+- [x] GPT-5 mixed language detection across locale pages
+- [x] Pillar 1: Globalization (crawler + GPT research)
+- [x] Pillar 2: Website Health (PSI + DataForSEO crawl + homepage checks)
+- [x] Pillar 3: Accessibility & Compliance (gpt-4o-search-preview)
+- [x] Pillar 4: Online Reputation (YouTube API + GPT-5 web search)
+- [x] Competitor data gathering (Playwright + gpt-4o-search-preview per competitor)
+- [x] LCR computed deterministically
+- [x] GPT-5 UI content generation from facts pack
+- [x] Results dashboard (sticky nav, pillar sections, LCR donut, PSI bars, star ratings)
+- [x] requirements.txt
 
 ### What's missing / not yet done
-- [ ] **Results display page** - the frontend has no page to render the completed JSON report. When status = "completed", the user should be redirected to a rich report view. Currently `GET /audits/{job_id}/result` returns raw JSON with no frontend.
-- [ ] **Pillar 2 (Website Health)** - placeholder only. Needs Google PageSpeed Insights API integration and SEO diagnostics.
-- [ ] **PDF generation** - the final deliverable is a PDF. WeasyPrint or pdfkit planned.
-- [ ] **HTML report template** - before PDF, need a well-designed HTML template (probably React-to-PDF or a Jinja2 template server-side).
-- [ ] **requirements.txt / pyproject.toml** - backend has no dependency manifest.
-- [ ] **Error handling on frontend** - status page shows error status but no "try again" flow.
-- [ ] **Auth / multi-tenancy** - all jobs are public by job ID. No user accounts or access control.
+- [ ] **Competitor name input** - form only takes competitor URLs; company name is GPT-inferred (may be imprecise)
+- [ ] **Auth / SSO** - any job is accessible by UUID; SSO integration needed before company-wide rollout (provider TBD). All users see all jobs (shared job list).
+- [ ] **Production config** - CORS and frontend API URL hardcoded to localhost; must be env-var-driven before deployment
+- [ ] **Multi-user queue** - BackgroundTasks works for single-user; ~40 salespeople may submit concurrently. Design decision: **serialized queue (one job runs at a time, others wait)** to avoid OpenAI rate limit collisions. Implementation: Celery + Redis (AWS ElastiCache). SQLite → PostgreSQL (AWS RDS) also needed for concurrent-safe writes.
+- [ ] **Error recovery UI** - failed audits show error state but no retry button
 
----
-
-## What's Next (Priority Order)
-
-1. **Results display page** (`/audits/[job_id]/result` route in Next.js)
-   - Fetch `GET /audits/{job_id}/result` when status is "completed"
-   - Render each pillar with its intro, findings, impact, recommendations, ROI, benchmark table
-   - Render competitive landscape table
-   - Render conclusion
-
-2. **Auto-redirect to results** - when the status page detects `completed`, redirect to the results page automatically.
-
-3. **Pillar 2 (Website Health)** - integrate Google PageSpeed Insights API (free, no auth needed for basic use). Pull Core Web Vitals, performance score, SEO score.
-
-4. **PDF export** - add a "Download as PDF" button on the results page. Options: browser `window.print()` with print CSS, WeasyPrint (server-side), or a headless Chrome PDF render.
-
-5. **requirements.txt** - pin all backend dependencies.
+### Explicitly out of scope
+- **PDF export** - dropped. UI dashboard is the final deliverable.
 
 ---
 
 ## Known Issues & Gotchas
 
 - **DB schema changes**: SQLAlchemy's `create_all` won't ALTER existing tables. Must `rm audit_jobs.db` after any model change.
-- **`__init__.py`**: If the relative import `from .audit import run_audit` breaks, create an empty `backend/app/__init__.py`.
-- **gpt-4o-search-preview**: This model does not support `response_format={"type": "json_object"}`. JSON output is enforced via prompt instructions + `_parse_json()` helper. Only use `response_format` on `gpt-4o` calls.
-- **LCR non-determinism**: The `required_languages` list is gathered via web search (AI-estimated for the client's market). This is inherently approximate - the LCR formula is deterministic but the input list is AI-inferred.
-- **Competitor `company_name`**: The competitor benchmark data includes a `company_name` field that the model fills in from its search. This may differ slightly from what the user expects. Consider passing the competitor company name from the user alongside the URL.
-- **3 competitors hardcoded**: The DB schema and API both assume exactly 3 competitors. The pipeline logic uses `for comp_url in competitors` (flexible), but the DB model has `competitor_1/2/3` columns.
+- **gpt-4o-search-preview**: Does not support `response_format={"type": "json_object"}`. JSON enforced via prompt + `_parse_json()` helper.
+- **gpt-5 TPM cap**: 6000 TPM per request on web search. Turn 1 was previously stateful (carried Turn 2 context) which caused 429s on large sites. Fixed by making Turn 2 independent.
+- **Turn 1 JSON truncation**: On sites with 60+ hreflang tags, GPT would echo back the pre-filled crawler data in its response, causing the JSON to be cut off mid-string. Fixed by removing all crawler-owned fields from the Turn 1 response schema.
+- **Cookie banner timing**: GTM-loaded CMPs (banner injected after page load) need a 2.5s `page.wait_for_timeout()` before DOM detection runs.
+- **Competitor `company_name`**: Filled in by GPT from its search - may differ slightly from the actual name. Passing competitor names from the form would improve this.

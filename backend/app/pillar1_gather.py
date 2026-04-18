@@ -268,6 +268,114 @@ def _detect_locale_urls(page, base_url: str) -> dict:
     return locale_urls
 
 
+def _detect_cookie_banner(page) -> dict:
+    """
+    Detect cookie consent banners and identify the CMP provider.
+    Uses two strategies:
+      1. Script/style signals — reliable because they're in the HTML source
+         (CMP scripts are loaded server-side, so their tags are always present)
+      2. DOM element signals — for banners that are already rendered
+    Returns {"detected": bool, "provider": str | None}
+    """
+    result = page.evaluate("""() => {
+        // --- Strategy 1: script/style tag signals (always present in source) ---
+        const scriptSignals = [
+            { name: "Cookiebot",  patterns: ["consent.cookiebot.com", "cookiebot.com/uc.js", "cookiebot.com/cc.js"] },
+            { name: "OneTrust",   patterns: ["cdn.cookielaw.org", "optanon.blob.core.windows.net"] },
+            { name: "Didomi",     patterns: ["sdk.privacy-center.org", "didomi.io"] },
+            { name: "TrustArc",   patterns: ["consent.trustarc.com", "trustarc.com/notice"] },
+            { name: "CookieYes",  patterns: ["cdn-cookieyes.com", "app.cookieyes.com"] },
+            { name: "Osano",      patterns: ["cmp.osano.com"] },
+            { name: "Axeptio",    patterns: ["static.axept.io"] },
+            { name: "Iubenda",    patterns: ["cdn.iubenda.com/cs/iubenda_cs.js"] },
+            { name: "Quantcast",  patterns: ["cmp.quantcast.com"] },
+        ];
+        const allScripts = Array.from(document.querySelectorAll('script[src]')).map(s => s.src || '');
+        for (const sig of scriptSignals) {
+            for (const pattern of sig.patterns) {
+                if (allScripts.some(src => src.includes(pattern))) {
+                    return { detected: true, provider: sig.name };
+                }
+            }
+        }
+
+        // Check script id attributes (e.g. <script id="Cookiebot">)
+        const scriptIdSignals = [
+            { name: "Cookiebot",  ids: ["Cookiebot", "cookiebot"] },
+            { name: "OneTrust",   ids: ["onetrust-script", "OptanonWrapper"] },
+        ];
+        for (const sig of scriptIdSignals) {
+            for (const id of sig.ids) {
+                if (document.getElementById(id)) {
+                    return { detected: true, provider: sig.name };
+                }
+            }
+        }
+
+        // Check style tag IDs injected by CMPs (present even before dialog renders)
+        const styleIdSignals = [
+            { name: "Cookiebot",  ids: ["CookiebotDialogStyle", "CookieConsentStateDisplayStyles"] },
+            { name: "OneTrust",   ids: ["onetrust-style"] },
+        ];
+        for (const sig of styleIdSignals) {
+            for (const id of sig.ids) {
+                if (document.getElementById(id)) {
+                    return { detected: true, provider: sig.name };
+                }
+            }
+        }
+
+        // Check window globals set by CMP scripts
+        const windowSignals = [
+            { name: "Cookiebot",  globals: ["Cookiebot", "CookieConsentDialog"] },
+            { name: "OneTrust",   globals: ["OneTrust", "OptanonWrapper"] },
+            { name: "Didomi",     globals: ["Didomi", "__tcfapi"] },
+        ];
+        for (const sig of windowSignals) {
+            for (const g of sig.globals) {
+                if (window[g] !== undefined) {
+                    return { detected: true, provider: sig.name };
+                }
+            }
+        }
+
+        // --- Strategy 2: rendered DOM elements ---
+        const domProviders = [
+            { name: "OneTrust",   selectors: ["#onetrust-banner-sdk", ".onetrust-pc-dark-filter"] },
+            { name: "Cookiebot",  selectors: ["#CybotCookiebotDialog", "[data-cookieconsent]"] },
+            { name: "Didomi",     selectors: ["#didomi-host", ".didomi-popup-container"] },
+            { name: "TrustArc",   selectors: ["#truste-consent-track", ".truste_overlay"] },
+            { name: "CookieYes",  selectors: [".cky-consent-container", "#cky-consent"] },
+            { name: "Osano",      selectors: [".osano-cm-window", ".osano-cm-widget"] },
+            { name: "Axeptio",    selectors: ["#axeptio_overlay"] },
+            { name: "Iubenda",    selectors: ["#iubenda-cs-banner"] },
+            { name: "Quantcast",  selectors: [".qc-cmp2-container"] },
+        ];
+        for (const provider of domProviders) {
+            for (const sel of provider.selectors) {
+                try {
+                    if (document.querySelector(sel)) return { detected: true, provider: provider.name };
+                } catch(e) {}
+            }
+        }
+
+        // Generic fallback
+        const genericSelectors = [
+            "[id*='cookie'][id*='banner']", "[id*='cookie'][id*='consent']",
+            "[class*='cookie'][class*='banner']", "[class*='cookie'][class*='consent']",
+            "[class*='consent'][class*='banner']", "[id*='gdpr']", "[class*='gdpr']",
+        ];
+        for (const sel of genericSelectors) {
+            try {
+                if (document.querySelector(sel)) return { detected: true, provider: null };
+            } catch(e) {}
+        }
+
+        return { detected: false, provider: null };
+    }""")
+    return result
+
+
 def _detect_language_selector_type(page) -> str:
     result = page.evaluate("""() => {
         if (document.querySelector('select option[lang], select[id*="lang"], select[class*="lang"]'))
@@ -319,6 +427,8 @@ def gather_pillar1_facts(
         "crawler_ran": False,
         "crawler_error": None,
         "target_languages": [],
+        "cookie_banner_detected": False,
+        "cookie_provider": None,
     }
 
     marker_map = marker_phrases_by_language or DEFAULT_MARKER_PHRASES_BY_LANGUAGE
@@ -388,6 +498,16 @@ def gather_pillar1_facts(
                 sorted(variant_set) if variant_set else sorted(locale_urls.keys())
             )
             result["language_selector_type"] = _detect_language_selector_type(page)
+
+            # Give GTM-injected CMPs time to fire before checking the DOM.
+            # Sites that load their CMP via GTM rather than a direct script tag
+            # need a brief pause — without this they always appear as "no banner".
+            page.wait_for_timeout(2500)
+
+            cookie_info = _detect_cookie_banner(page)
+            result["cookie_banner_detected"] = cookie_info.get("detected", False)
+            result["cookie_provider"] = cookie_info.get("provider")
+            print(f"[crawler] Cookie banner: {result['cookie_banner_detected']} (provider: {result['cookie_provider']})")
 
             print(f"[crawler] Found {len(locale_urls)} locales: {list(locale_urls.keys())}")
 

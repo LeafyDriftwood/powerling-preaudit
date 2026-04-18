@@ -228,12 +228,28 @@ Return ONLY a valid JSON object with no markdown fences:
     locale_urls = pillar1_data.get("locale_urls", {})
     locale_urls_json = json.dumps(locale_urls, ensure_ascii=False)
 
+    # Cookie banner facts from Playwright crawler (authoritative)
+    cookie_banner_detected = crawler_facts.get("cookie_banner_detected") if crawler_facts else None
+    cookie_provider = crawler_facts.get("cookie_provider") if crawler_facts else None
+    if cookie_banner_detected is not None:
+        cookie_context = (
+            f"Yes (provider: {cookie_provider})" if cookie_provider
+            else ("Yes (provider unknown)" if cookie_banner_detected else "No — not detected on page load")
+        )
+        cookie_instruction = (
+            f"AUTHORITATIVE FACT: Direct browser analysis confirmed cookie consent banner: {cookie_context}. "
+            f"Use this exact value for has_cookie_banner and cookie_provider. Do NOT re-research it."
+        )
+    else:
+        cookie_instruction = "Search the website for a cookie consent banner."
+
     turn2_prompt = f"""
 You are auditing the website {url} ({company_name}) for accessibility and legal compliance.
 
 Context from direct site analysis:
 - Available languages: {available_languages}
 - Locale URLs: {locale_urls_json}
+- Cookie consent: {cookie_instruction}
 
 Use the languages and locale URLs above to infer the company's likely region(s) and applicable regulations (e.g., GDPR/CNIL/RGAA for French sites, ADA/WCAG for US-facing sites, EN 301 549 for EU public sector).
 
@@ -1074,7 +1090,7 @@ Return as JSON:
 {{
   "intro": "...",
   "table": {{
-    "headers": ["{company_name}", "{cf[0].get('company_name', 'Competitor 1')}", "{cf[1].get('company_name', 'Competitor 2')}", "{cf[2].get('company_name', 'Competitor 3')}"],
+    "headers": ["{company_name}", "{cf[0].get('company_name', 'Competitor 1') if len(cf) > 0 else 'Competitor 1'}", "{cf[1].get('company_name', 'Competitor 2') if len(cf) > 1 else 'Competitor 2'}", "{cf[2].get('company_name', 'Competitor 3') if len(cf) > 2 else 'Competitor 3'}"],
     "rows": [
       {{"pillar": "Globalization", "cells": ["...", "...", "...", "..."]}},
       {{"pillar": "Website Health", "cells": ["...", "...", "...", "..."]}},
