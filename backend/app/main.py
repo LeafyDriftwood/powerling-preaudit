@@ -1,12 +1,11 @@
 import json
-import os
 import uuid
 from datetime import datetime
 
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, BackgroundTasks, File, Form, UploadFile
+from fastapi import FastAPI, BackgroundTasks, Form
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import create_engine, Column, String, DateTime, Text
 from sqlalchemy.ext.declarative import declarative_base
@@ -14,8 +13,6 @@ from sqlalchemy.orm import sessionmaker
 
 from .audit import run_audit
 
-UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "..", "uploads")
-os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 app = FastAPI()
 
@@ -43,7 +40,6 @@ class AuditJob(Base):
     competitor_1 = Column(String, nullable=False)
     competitor_2 = Column(String, nullable=False)
     competitor_3 = Column(String, nullable=False)
-    semrush_pdf_path = Column(String, nullable=True)  # path to uploaded SEMrush PDF, if any
     status = Column(String, default="pending")  # pending | processing | completed | error
     result = Column(Text, nullable=True)         # JSON string of full report
     error_message = Column(Text, nullable=True)
@@ -54,7 +50,7 @@ Base.metadata.create_all(bind=engine)
 
 
 # Background task
-def run_audit_job(job_id: str, url: str, company_name: str, competitors: list, semrush_pdf_path: str = None):
+def run_audit_job(job_id: str, url: str, company_name: str, competitors: list):
     """Runs the full audit pipeline and updates the DB record when done."""
     db = SessionLocal()
     try:
@@ -64,7 +60,7 @@ def run_audit_job(job_id: str, url: str, company_name: str, competitors: list, s
         db.commit()
 
         # Run the pipeline
-        result = run_audit(url, company_name, competitors, semrush_pdf_path=semrush_pdf_path)
+        result = run_audit(url, company_name, competitors)
 
         # Save completed result
         job = db.query(AuditJob).filter(AuditJob.id == job_id).first()
@@ -97,18 +93,9 @@ async def create_audit(
     competitor_1: str = Form(...),
     competitor_2: str = Form(...),
     competitor_3: str = Form(...),
-    semrush_pdf: UploadFile = File(None),
 ):
     """Create a new audit job and start the pipeline in the background."""
     job_id = str(uuid.uuid4())
-
-    # Save uploaded PDF to disk if provided
-    pdf_path = None
-    if semrush_pdf and semrush_pdf.filename:
-        pdf_path = os.path.join(UPLOAD_DIR, f"{job_id}.pdf")
-        contents = await semrush_pdf.read()
-        with open(pdf_path, "wb") as f:
-            f.write(contents)
 
     db = SessionLocal()
     job = AuditJob(
@@ -118,7 +105,6 @@ async def create_audit(
         competitor_1=competitor_1,
         competitor_2=competitor_2,
         competitor_3=competitor_3,
-        semrush_pdf_path=pdf_path,
         status="pending",
         created_at=datetime.utcnow(),
     )
@@ -133,7 +119,6 @@ async def create_audit(
         url,
         company_name,
         [competitor_1, competitor_2, competitor_3],
-        pdf_path,
     )
 
     return {

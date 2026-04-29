@@ -149,11 +149,11 @@ def gather_site_crawl_facts_dataforseo(
         not original 301/302; split requires redirect_chains endpoint — future)
 
     Note on orphan_pages:
-      DataForSEO's checks.from_sitemap == False means "page was not listed in
-      the sitemap." This is a broader signal than a strict SEO orphan (no inbound
-      links). Pages intentionally excluded from the sitemap (paginated pages, tag
-      pages, etc.) will be counted here. Interpret as "pages not in sitemap"
-      rather than "unreachable pages."
+      DataForSEO defines is_orphan_page as pages with no internal links pointing
+      to them. Current implementation counts this from per-page checks.is_orphan_page.
+      The summary page_metrics.checks may also expose is_orphan_page as an aggregate —
+      if so, that would be simpler and consistent with how other fields are computed.
+      See PROJECT.md for the pending verification task.
 
     Extra fields added by DataForSEO (not in built-in crawler):
       - site_health_score         (0–100 onpage_score)
@@ -196,7 +196,7 @@ def gather_site_crawl_facts_dataforseo(
         "avg_crawl_depth": None,
         "pages_deep_crawl": None,
         "sitemap_urls_count": None,        # not available
-        "orphan_pages": None,              # "not in sitemap" — see docstring
+        "orphan_pages": None,              # pages with no inbound internal links — see docstring
         "crawl_scope_note": None,
         # DataForSEO extras
         "site_health_score": None,
@@ -424,8 +424,7 @@ def gather_site_crawl_facts_dataforseo(
         if enable_javascript:
             scope += " JS rendering enabled."
         scope += (
-            " orphan_pages = pages not listed in sitemap (not strictly "
-            "SEO-orphaned; may include paginated/tag pages)."
+            " orphan_pages = pages with no inbound internal links (DataForSEO is_orphan_page)."
         )
         result["crawl_scope_note"] = scope
 
