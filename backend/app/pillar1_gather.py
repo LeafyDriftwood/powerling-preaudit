@@ -10,7 +10,7 @@ import json
 import os
 import re
 from urllib.parse import urlparse
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
 from openai import OpenAI
 
@@ -22,37 +22,6 @@ except ImportError:
 
 openai_client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
-
-# ---------------------------------------------------------------------------
-# French marker phrases (kept for backward compatibility / reference)
-# ---------------------------------------------------------------------------
-
-FRENCH_MARKERS = [
-    "en savoir plus",
-    "lire la suite",
-    "en savoir",
-    "savoir plus",
-    "découvrir",
-    "télécharger",
-    "contactez-nous",
-    "contactez nous",
-    "nous contacter",
-    "à propos",
-    "accueil",
-    "actualités",
-    "nos solutions",
-    "nos produits",
-    "nos services",
-    "notre équipe",
-    "voir plus",
-    "voir tout",
-    "voir tous",
-    "en voir plus",
-]
-
-DEFAULT_MARKER_PHRASES_BY_LANGUAGE = {
-    "FR": FRENCH_MARKERS,
-}
 
 COMMON_LANG_CODES = {
     "AR", "BG", "CS", "DA", "DE", "EL", "EN", "ES", "ET", "FA", "FI", "FR",
@@ -144,45 +113,6 @@ def _extract_code_from_href(href: str, base_url: str) -> Optional[str]:
         return None
 
     return None
-
-
-def _find_marker_strings(texts: List[str], markers: List[str]) -> List[str]:
-    found = set()
-    for text in texts:
-        lowered = text.strip().lower()
-        if not lowered:
-            continue
-        for marker in markers:
-            if marker in lowered:
-                found.add(text.strip())
-                break
-    return sorted(found)
-
-
-def _extract_interactive_texts(page) -> list:
-    return page.evaluate("""() => {
-        const selectors = [
-            'a', 'button',
-            '[role="button"]',
-            'nav a', '.nav a', '.menu a', '.navigation a',
-            '.cta', '.btn', '[class*="cta"]', '[class*="btn"]',
-            '.card a', '.news a', '.article a', '.post a',
-        ];
-        const seen = new Set();
-        const results = [];
-        for (const sel of selectors) {
-            try {
-                document.querySelectorAll(sel).forEach(el => {
-                    const t = (el.innerText || el.textContent || '').trim();
-                    if (t && t.length > 1 && t.length < 120 && !seen.has(t)) {
-                        seen.add(t);
-                        results.push(t);
-                    }
-                });
-            } catch(e) {}
-        }
-        return results;
-    }""")
 
 
 def _detect_locale_urls(page, base_url: str) -> dict:
@@ -397,21 +327,13 @@ def _detect_language_selector_type(page) -> str:
 # Public function 1 — Playwright crawler
 # ---------------------------------------------------------------------------
 
-def gather_pillar1_facts(
-    url: str,
-    target_languages: Optional[List[str]] = None,
-    marker_phrases_by_language: Optional[Dict[str, List[str]]] = None,
-    check_mixed_language: bool = False,
-) -> dict:
+def gather_pillar1_facts(url: str) -> dict:
     """
     Load the client's website with a headless browser and extract:
       - Available locale URLs (from hreflang or language switcher)
       - Whether hreflang tags are present
       - Language selector type
-
-    check_mixed_language: legacy string-based mixed language detection.
-    Defaults to False — use gather_mixed_language_issues() instead for
-    GPT-5-based detection that catches all languages, not just French.
+      - Cookie banner presence and provider
     """
     result = {
         "available_languages": [],
@@ -430,21 +352,6 @@ def gather_pillar1_facts(
         "cookie_banner_detected": False,
         "cookie_provider": None,
     }
-
-    marker_map = marker_phrases_by_language or DEFAULT_MARKER_PHRASES_BY_LANGUAGE
-    normalized_marker_map = {
-        _normalize_lang(lang): [m.lower() for m in (markers or []) if isinstance(m, str) and m.strip()]
-        for lang, markers in marker_map.items()
-        if isinstance(lang, str)
-    }
-
-    if target_languages:
-        normalized_targets = [_normalize_lang(lang) for lang in target_languages if isinstance(lang, str) and lang.strip()]
-    else:
-        normalized_targets = sorted(normalized_marker_map.keys())
-
-    normalized_targets = [lang for lang in normalized_targets if lang in normalized_marker_map]
-    result["target_languages"] = normalized_targets
 
     try:
         from playwright.sync_api import sync_playwright
@@ -510,46 +417,6 @@ def gather_pillar1_facts(
             print(f"[crawler] Cookie banner: {result['cookie_banner_detected']} (provider: {result['cookie_provider']})")
 
             print(f"[crawler] Found {len(locale_urls)} locales: {list(locale_urls.keys())}")
-
-            if check_mixed_language and normalized_targets:
-                for lang_code, locale_url in locale_urls.items():
-                    try:
-                        print(f"[crawler] Checking locale {lang_code}: {locale_url}")
-                        page.goto(locale_url, wait_until="domcontentloaded")
-                        texts = _extract_interactive_texts(page)
-                        result["pages_checked"] += 1
-
-                        locale_base_lang = _normalize_lang(lang_code)
-                        language_hits = []
-                        for target_lang in normalized_targets:
-                            if target_lang == locale_base_lang:
-                                continue
-                            markers = normalized_marker_map.get(target_lang, [])
-                            matched = _find_marker_strings(texts, markers)
-                            if matched:
-                                language_hits.append({
-                                    "language": target_lang,
-                                    "marker_strings_found": matched,
-                                })
-
-                        if language_hits:
-                            issue = {
-                                "locale": lang_code,
-                                "page_url": locale_url,
-                                "language_hits": language_hits,
-                            }
-                            fr_hit = next((h for h in language_hits if h["language"] == "FR"), None)
-                            if fr_hit:
-                                issue["french_strings_found"] = fr_hit["marker_strings_found"]
-                            result["mixed_language_issues"].append(issue)
-                            print(f"[crawler]   Mixed-language markers on {lang_code}: {language_hits}")
-                        else:
-                            print(f"[crawler]   No mixed-language markers on {lang_code}.")
-
-                    except Exception as page_err:
-                        print(f"[crawler]   Failed to check {lang_code}: {page_err}")
-            else:
-                print(f"[crawler] Skipping string-based mixed-language check (use gather_mixed_language_issues instead).")
 
             browser.close()
             result["crawler_ran"] = True
@@ -644,7 +511,14 @@ Return an empty array if no issues are found.
         raw = resp.output_text
         clean = re.sub(r"^```(?:json)?\s*", "", raw.strip())
         clean = re.sub(r"\s*```$", "", clean)
-        result = json.loads(clean)
+        try:
+            result = json.loads(clean)
+        except json.JSONDecodeError:
+            match = re.search(r'\[.*\]', clean, re.DOTALL)
+            if match:
+                result = json.loads(match.group())
+            else:
+                return []
         if not isinstance(result, list):
             return []
         # Basic schema validation — drop malformed items

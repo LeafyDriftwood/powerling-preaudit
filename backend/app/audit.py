@@ -112,9 +112,8 @@ def gather_all_client_data(url: str, company_name: str, crawler_facts: dict = No
         # Truncate to first 5 issues to keep prompt length manageable
         ml_detail_json = json.dumps(ml_issues[:5], ensure_ascii=False)
         locale_urls_json = json.dumps(crawler_facts.get("locale_urls", {}), ensure_ascii=False)
-        hreflang_tags = crawler_facts.get("hreflang_tags", [])
-        print(f"[audit]   hreflang tags count: {len(hreflang_tags)}")
-        hreflang_tags_json = json.dumps(hreflang_tags, ensure_ascii=False)
+        hreflang_tags_count = len(crawler_facts.get("hreflang_tags", []))
+        print(f"[audit]   hreflang tags count: {hreflang_tags_count}")
         target_langs_json = json.dumps(crawler_facts.get("target_languages", []), ensure_ascii=False)
         available_lang_variants_json = json.dumps(
             crawler_facts.get("available_language_variants", crawler_facts.get("available_languages", [])),
@@ -136,8 +135,7 @@ Use these EXACT values in your JSON response for the listed fields - do not re-r
     available_language_variants: {available_lang_variants_json}
   language_selector_type: "{crawler_facts['language_selector_type']}"
     locale_urls: {locale_urls_json}
-  hreflang_present: {crawler_facts['hreflang_present']}
-    hreflang_tags: {hreflang_tags_json}
+  hreflang_present: {crawler_facts['hreflang_present']} ({hreflang_tags_count} tags detected)
   hreflang_x_default: {x_default_status}
     pages_checked: {crawler_facts.get('pages_checked', 0)}
     target_languages_checked_for_mixing: {target_langs_json}
@@ -166,7 +164,7 @@ Approximate monthly organic traffic volume (from public sources if findable), an
 
 Return ONLY a valid JSON object with no markdown fences.
 Only return the fields below — do NOT include available_languages, available_language_variants,
-language_selector_type, locale_urls, hreflang_present, hreflang_tags, pages_checked,
+language_selector_type, locale_urls, hreflang_present, pages_checked,
 target_languages, or mixed_language_ux_issues_detail as those are already known:
 {{
   "geographic_presence": "Present in 90+ countries across Europe (65%), MENA (7.5%), APAC (7.5%), Latin America (7.5%), North America (5%)",
@@ -645,7 +643,7 @@ def run_audit(url: str, company_name: str, competitors: list) -> dict:
     client_crawler = None
     try:
         if gather_pillar1_facts:
-            client_crawler = gather_pillar1_facts(url, check_mixed_language=False)
+            client_crawler = gather_pillar1_facts(url)
             if client_crawler.get("crawler_ran"):
                 print(f"[audit]   Crawler OK: {client_crawler.get('available_languages')} | "
                       f"hreflang: {client_crawler.get('hreflang_present')} | "
@@ -718,8 +716,7 @@ def run_audit(url: str, company_name: str, competitors: list) -> dict:
             from app.website_health import gather_pillar2_facts as _gather_p2
         except ImportError:
             from website_health import gather_pillar2_facts as _gather_p2
-        locale_urls = client_crawler.get("locale_urls") if client_crawler else None
-        pillar2_data = _gather_p2(url, locale_urls=locale_urls, max_crawl_pages=200)
+        pillar2_data = _gather_p2(url, max_crawl_pages=200)
         print(f"[audit]   Pillar 2 complete. "
               f"PSI ran: {pillar2_data.get('psi_ran')}, "
               f"Crawl ran: {pillar2_data.get('crawl_ran')}, "
@@ -733,7 +730,7 @@ def run_audit(url: str, company_name: str, competitors: list) -> dict:
     for i, comp_url in enumerate(competitors):
         print(f"[audit] Phase 2: Crawling competitor {i+1} ({comp_url})...")
         try:
-            comp_crawler = gather_pillar1_facts(comp_url, check_mixed_language=False) if gather_pillar1_facts else None
+            comp_crawler = gather_pillar1_facts(comp_url) if gather_pillar1_facts else None
             comp_langs = comp_crawler.get("available_languages") if (comp_crawler and comp_crawler.get("crawler_ran")) else None
             if comp_langs is not None:
                 print(f"[audit]   Competitor {i+1} crawler OK: {comp_langs}")

@@ -28,20 +28,19 @@ export default function StatusPage() {
   useEffect(() => {
     const fetchStatus = async () => {
       try {
-        const response = await fetch(`http://localhost:8000/audits/${job_id}`);
-        const data = await response.json();
-        
-        if (data.error) {
-          setError(data.error);
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/audits/${job_id}`);
+        if (!response.ok) {
+          const err = await response.json().catch(() => ({}));
+          setError(err.detail || `Request failed (${response.status})`);
           if (intervalRef.current) clearInterval(intervalRef.current);
-        } else {
-          setJob(data);
-          // Stop polling once terminal state reached
-          if (data.status === 'completed' || data.status === 'error') {
-            if (intervalRef.current) clearInterval(intervalRef.current);
-            if (data.status === 'completed') {
-              router.push(`/audits/${job_id}/result`);
-            }
+          return;
+        }
+        const data = await response.json();
+        setJob(data);
+        if (data.status === 'completed' || data.status === 'error') {
+          if (intervalRef.current) clearInterval(intervalRef.current);
+          if (data.status === 'completed') {
+            router.push(`/audits/${job_id}/result`);
           }
         }
       } catch (err) {

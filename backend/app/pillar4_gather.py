@@ -22,7 +22,7 @@ from bs4 import BeautifulSoup
 from openai import OpenAI
 
 openai_client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
-YOUTUBE_API_KEY = os.environ.get("GOOGLE_PAGESPEED_API_KEY")  # same key
+YOUTUBE_API_KEY = os.environ.get("YOUTUBE_API_KEY")
 
 
 # ---------------------------------------------------------------------------
@@ -82,34 +82,38 @@ def _step1_youtube(domain: str, company_name: str) -> tuple:
     """
     host = _domain_host(domain)
 
-    search_resp = requests.get(
-        "https://www.googleapis.com/youtube/v3/search",
-        params={
-            "part": "snippet",
-            "q": company_name,
-            "type": "channel",
-            "maxResults": 5,
-            "key": YOUTUBE_API_KEY,
-        },
-        timeout=10,
-    )
-    search_resp.raise_for_status()
-    channel_ids = [item["id"]["channelId"] for item in search_resp.json().get("items", [])]
+    try:
+        search_resp = requests.get(
+            "https://www.googleapis.com/youtube/v3/search",
+            params={
+                "part": "snippet",
+                "q": company_name,
+                "type": "channel",
+                "maxResults": 5,
+                "key": YOUTUBE_API_KEY,
+            },
+            timeout=10,
+        )
+        search_resp.raise_for_status()
+        channel_ids = [item["id"]["channelId"] for item in search_resp.json().get("items", [])]
 
-    if not channel_ids:
+        if not channel_ids:
+            return None, []
+
+        det_resp = requests.get(
+            "https://www.googleapis.com/youtube/v3/channels",
+            params={
+                "part": "snippet,statistics,brandingSettings",
+                "id": ",".join(channel_ids),
+                "key": YOUTUBE_API_KEY,
+            },
+            timeout=10,
+        )
+        det_resp.raise_for_status()
+        channels = det_resp.json().get("items", [])
+    except Exception as e:
+        print(f"  [warn] YouTube API call failed: {e}")
         return None, []
-
-    det_resp = requests.get(
-        "https://www.googleapis.com/youtube/v3/channels",
-        params={
-            "part": "snippet,statistics,brandingSettings",
-            "id": ",".join(channel_ids),
-            "key": YOUTUBE_API_KEY,
-        },
-        timeout=10,
-    )
-    det_resp.raise_for_status()
-    channels = det_resp.json().get("items", [])
 
     confident = []
     uncertain = []
@@ -218,8 +222,15 @@ Return JSON only:
     clean = re.sub(r"\s*```$", "", clean)
     try:
         result = json.loads(clean)
-    except Exception:
-        return None
+    except json.JSONDecodeError:
+        match = re.search(r'\{.*\}', clean, re.DOTALL)
+        if match:
+            try:
+                result = json.loads(match.group())
+            except Exception:
+                return None
+        else:
+            return None
 
     channel_id = result.get("selected_channel_id")
     if not channel_id:
@@ -270,6 +281,7 @@ def _step3_footer_scraper(domain: str) -> dict:
     try:
         headers = {"User-Agent": "Mozilla/5.0 (compatible; PowerlingAudit/1.0)"}
         resp = requests.get(url, timeout=12, headers=headers, allow_redirects=True)
+        resp.raise_for_status()
         soup = BeautifulSoup(resp.text, "html.parser")
     except Exception as e:
         print(f"  [warn] footer scraper failed for {url}: {e}")
@@ -410,26 +422,12 @@ Notes must be plain text — no markdown links or citations.
   "sentiment_justification": "..."
 }}
 """
-    stream = openai_client.responses.create(
+    resp = openai_client.responses.create(
         model="gpt-5",
         tools=[{"type": "web_search"}],
         input=prompt,
-        stream=True,
     )
-    full = []
-    usage = None
-    try:
-        for event in stream:
-            if event.type == "response.output_text.delta":
-                full.append(event.delta)
-            elif event.type == "response.completed":
-                usage = getattr(event.response, "usage", None)
-    except Exception as e:
-        if full:
-            pass  # stream closed after content was received — normal
-        else:
-            print(f"  [warn] step4 stream failed before any content: {e}")
-
+    usage = getattr(resp, "usage", None)
     if usage:
         print(
             f"[pillar4 step4 tokens] "
@@ -438,12 +436,18 @@ Notes must be plain text — no markdown links or citations.
             f"total={getattr(usage, 'total_tokens', '?')}"
         )
 
-    raw = "".join(full)
+    raw = resp.output_text
     clean = re.sub(r"^```(?:json)?\s*", "", raw.strip())
     clean = re.sub(r"\s*```$", "", clean)
     try:
         return json.loads(clean)
-    except Exception:
+    except json.JSONDecodeError:
+        match = re.search(r'\{.*\}', clean, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group())
+            except Exception:
+                pass
         return None
 
 

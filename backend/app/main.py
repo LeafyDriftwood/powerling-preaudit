@@ -5,7 +5,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, BackgroundTasks, Form
+from fastapi import FastAPI, BackgroundTasks, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import create_engine, Column, String, DateTime, Text
 from sqlalchemy.ext.declarative import declarative_base
@@ -56,6 +56,9 @@ def run_audit_job(job_id: str, url: str, company_name: str, competitors: list):
     try:
         # Mark as processing
         job = db.query(AuditJob).filter(AuditJob.id == job_id).first()
+        if not job:
+            print(f"[audit] ERROR: job {job_id} not found in DB, aborting.")
+            return
         job.status = "processing"
         db.commit()
 
@@ -153,7 +156,7 @@ def get_audit(job_id: str):
     job = db.query(AuditJob).filter(AuditJob.id == job_id).first()
     db.close()
     if not job:
-        return {"error": "Job not found"}
+        raise HTTPException(status_code=404, detail="Job not found")
     return {
         "id": job.id,
         "url": job.url,
@@ -174,9 +177,11 @@ def get_audit_result(job_id: str):
     job = db.query(AuditJob).filter(AuditJob.id == job_id).first()
     db.close()
     if not job:
-        return {"error": "Job not found"}
+        raise HTTPException(status_code=404, detail="Job not found")
     if job.status == "error":
-        return {"error": f"Audit failed: {job.error_message}"}
+        raise HTTPException(status_code=500, detail=f"Audit failed: {job.error_message}")
     if job.status != "completed":
-        return {"error": f"Audit not yet complete (status: {job.status})"}
+        raise HTTPException(status_code=202, detail=f"Audit not yet complete (status: {job.status})")
+    if not job.result:
+        raise HTTPException(status_code=500, detail="Audit completed but result is missing")
     return json.loads(job.result)

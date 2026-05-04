@@ -34,8 +34,11 @@ export default function AuditListPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch('http://localhost:8000/audits')
-      .then((r) => r.json())
+    fetch(`${process.env.NEXT_PUBLIC_API_URL}/audits`)
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`Server error: ${r.status}`);
+        return r.json();
+      })
       .then((data) => {
         setAudits(data);
         setLoading(false);

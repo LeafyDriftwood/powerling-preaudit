@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 
@@ -234,23 +234,26 @@ export default function ResultPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showRaw, setShowRaw] = useState(false);
-  const navRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const base = "http://localhost:8000";
+    const base = process.env.NEXT_PUBLIC_API_URL;
     Promise.all([
-      fetch(`${base}/audits/${job_id}`).then((r) => r.json()),
-      fetch(`${base}/audits/${job_id}/result`).then((r) => r.json()),
+      fetch(`${base}/audits/${job_id}`).then(async (r) => {
+        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || `Error ${r.status}`);
+        return r.json();
+      }),
+      fetch(`${base}/audits/${job_id}/result`).then(async (r) => {
+        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || `Error ${r.status}`);
+        return r.json();
+      }),
     ])
       .then(([metaData, resultData]) => {
-        if (metaData.error) { setError(metaData.error); return; }
         setMeta({ company_name: metaData.company_name, url: metaData.url, created_at: metaData.created_at });
-        if (resultData.error) { setError(resultData.error); return; }
         setData(resultData as ReportData);
         setLoading(false);
       })
-      .catch(() => {
-        setError("Failed to load result. Is the backend running?");
+      .catch((err) => {
+        setError(err.message || "Failed to load result. Is the backend running?");
         setLoading(false);
       });
   }, [job_id]);
@@ -297,7 +300,7 @@ export default function ResultPage() {
     <div className="min-h-screen bg-gradient-to-b from-white to-orange-50">
 
       {/* Sticky top bar */}
-      <div ref={navRef} className="sticky top-0 z-30 bg-white border-b border-gray-200 shadow-sm">
+      <div className="sticky top-0 z-30 bg-white border-b border-gray-200 shadow-sm">
         <div className="max-w-6xl mx-auto px-6 py-3 flex items-center justify-between gap-4">
           <div className="flex items-center gap-4 min-w-0">
             <Link href="/audits" className="text-orange-600 hover:text-orange-700 text-sm font-semibold whitespace-nowrap">

@@ -25,7 +25,7 @@ function WebsiteForm() {
       formData.append('competitor_2', competitors[1]);
       formData.append('competitor_3', competitors[2]);
 
-      const response = await fetch('http://localhost:8000/audits', {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/audits`, {
         method: 'POST',
         body: formData,
       });

@@ -1,8 +1,8 @@
 """
 DataForSEO OnPage API — site crawl for Powerling Pre-Audit Pillar 2.
 
-Returns a dict with the same field names as gather_site_crawl_facts() in
-website_health.py so it can be used as a drop-in replacement.
+Returns a dict of site crawl facts consumed by gather_pillar2_facts() in
+website_health.py.
 
 Pricing (pay-as-you-go, charged only for pages actually crawled):
   basic only:          $0.000125/page  — all SEO fields, status codes
@@ -134,9 +134,8 @@ def gather_site_crawl_facts_dataforseo(
     load_resources: bool = False,
 ) -> dict:
     """
-    Run a DataForSEO OnPage crawl and return a dict matching the schema of
-    gather_site_crawl_facts() so it can be swapped in without changing
-    the rest of the Pillar 2 pipeline.
+    Run a DataForSEO OnPage crawl and return a site crawl facts dict
+    consumed by gather_pillar2_facts().
 
     Fields not available from DataForSEO (left as None):
       - empty_anchor_links_total  (not tracked by DataForSEO)

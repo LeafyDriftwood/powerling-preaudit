@@ -4,24 +4,18 @@ Pillar 2: Website Health data gathering for Powerling Pre-Audit.
 Data sources (all free, no auth required for basic use):
   1. Google PageSpeed Insights API
      - Client homepage: mobile + desktop
-     - Client locale pages: mobile + desktop (URLs from Pillar 1 crawler)
-     - Competitor homepages: mobile + desktop (benchmark only)
   2. Homepage technical checks (requests + HTML parsing)
      - robots.txt, sitemap.xml, llms.txt presence
      - HSTS header, HTTP -> HTTPS redirect
      - Schema.org markup types
      - H1 count
 
-SEMrush integration is intentionally left as a pass-through:
-  gather_pillar2_facts() accepts semrush_data=None; pass parsed
-  parse_semrush_pdf() output here when that integration is ready.
 """
 
 import json
 import os
 import re
 import time
-from collections import Counter, deque
 from typing import Dict, List, Optional
 from urllib.parse import urlparse, urljoin
 
@@ -32,10 +26,6 @@ _HTTP_TIMEOUT = 12   # seconds for simple GET checks
 _PSI_CONNECT_TIMEOUT = 10
 _PSI_READ_TIMEOUT = 70
 _PSI_DELAY = 0.5     # seconds between PSI calls (courtesy, not required)
-
-_CRAWL_MAX_RETRIES = 3
-_CRAWL_BACKOFF_429 = 5   # seconds; doubles each retry (5, 10, 20)
-_CRAWL_BACKOFF_ERR = 2   # seconds for transient errors; doubles each retry
 
 _HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; PowerlingAudit/1.0)"}
 
@@ -385,18 +375,14 @@ def gather_homepage_technical_facts(url: str) -> dict:
 
 def gather_pillar2_facts(
     url: str,
-    locale_urls: Optional[Dict[str, str]] = None,
-    semrush_data: Optional[dict] = None,
     api_key: Optional[str] = None,
     max_crawl_pages: int = 100,
 ) -> dict:
     """
     Full Pillar 2 data gathering for the client site.
 
-    url:          client homepage URL
-    locale_urls:  {lang_code: url} dict from the Pillar 1 crawler
-    semrush_data: parsed SEMrush PDF output (pass None to skip - integrate later)
-    api_key:      optional GOOGLE_PAGESPEED_API_KEY for higher rate limits
+    url:     client homepage URL
+    api_key: optional GOOGLE_PAGESPEED_API_KEY for higher rate limits
     """
     print(f"[p2] Gathering website health for {url} ...")
     if api_key is None:
@@ -404,13 +390,8 @@ def gather_pillar2_facts(
     if not api_key:
         print("[p2]   No GOOGLE_PAGESPEED_API_KEY provided; using lower unauthenticated quota.")
 
-    # SEMrush fields - populated when semrush_data is provided; all None otherwise
-    def _sem(key):
-        return semrush_data.get(key) if semrush_data else None
-
     result = {
         "psi_ran": False,
-        "semrush_available": semrush_data is not None,
         "pages_tested": 0,
         # Homepage PSI (nested dicts)
         "homepage_mobile": {},
@@ -454,7 +435,7 @@ def gather_pillar2_facts(
         "h1_count": None,
         "h1_texts": [],
         "schema_types": [],
-        # Site crawl fields (populated by gather_site_crawl_facts)
+        # Site crawl fields (populated by DataForSEO OnPage API)
         "crawl_ran": False,
         "crawl_error": None,
         "broken_internal_urls": None,
@@ -482,24 +463,24 @@ def gather_pillar2_facts(
         "crawl_scope_note": None,
         "broken_resources_pages": None,
         "dataforseo_task_id": None,
-        # SEMrush fields (None unless semrush_data provided)
-        "site_health_score": _sem("site_health_score"),
-        "errors_total": _sem("errors_total"),
-        "warnings_total": _sem("warnings_total"),
-        "notices_total": _sem("notices_total"),
-        "broken_internal_links": _sem("broken_internal_links"),
-        "broken_external_links": _sem("broken_external_links"),
-        "duplicate_content_pages": _sem("duplicate_content_pages"),
-        "missing_meta_descriptions": _sem("missing_meta_descriptions"),
-        "hreflang_conflicts": _sem("hreflang_conflicts"),
-        "hreflang_language_mismatch": _sem("hreflang_language_mismatch"),
-        "unminified_js_css": _sem("unminified_js_css"),
-        "temporary_redirects": _sem("temporary_redirects"),
-        "permanent_redirects": _sem("permanent_redirects"),
-        "pages_crawled": _sem("pages_crawled"),
-        "images_missing_alt": _sem("images_missing_alt"),
-        "multiple_h1_pages": _sem("multiple_h1_pages"),
-        "pages_slow_load": _sem("pages_slow_load"),
+        # Site-wide crawl fields (populated by DataForSEO)
+        "site_health_score": None,
+        "errors_total": None,
+        "warnings_total": None,
+        "notices_total": None,
+        "broken_internal_links": None,
+        "broken_external_links": None,
+        "duplicate_content_pages": None,
+        "missing_meta_descriptions": None,
+        "hreflang_conflicts": None,
+        "hreflang_language_mismatch": None,
+        "unminified_js_css": None,
+        "temporary_redirects": None,
+        "permanent_redirects": None,
+        "pages_crawled": None,
+        "images_missing_alt": None,
+        "multiple_h1_pages": None,
+        "pages_slow_load": None,
     }
 
     # 1. Homepage PSI - mobile
@@ -536,16 +517,6 @@ def gather_pillar2_facts(
             "font_size_ok", "link_text_ok",
         ]:
             result[field] = mobile.get(field)
-
-        # PSI fallbacks for SEMrush-equivalent fields (homepage mobile, single-page estimates)
-        if semrush_data is None:
-            unmin = mobile.get("unminified_javascript") or mobile.get("unminified_css")
-            result["unminified_js_css"] = unmin if unmin is not None else None
-            alt_score = mobile.get("image_alt_score")
-            result["images_missing_alt"] = (alt_score < 1) if alt_score is not None else None
-            result["pages_slow_load"] = (
-                1 if (mobile.get("performance_score") is not None and mobile.get("performance_score") < 50) else 0
-            )
 
     time.sleep(_PSI_DELAY)
 
@@ -634,475 +605,7 @@ def gather_pillar2_facts(
     print(
         f"[p2] Website health gather complete. "
         f"Pages tested: {result['pages_tested']}, "
-        f"Crawled: {result.get('pages_crawled') or 0}, "
-        f"SEMrush: {'yes' if semrush_data else 'no'}"
+        f"Crawled: {result.get('pages_crawled') or 0}"
     )
     return result
 
-
-# ---------------------------------------------------------------------------
-# Site crawl - lightweight BFS (requests + BeautifulSoup)
-# ---------------------------------------------------------------------------
-
-_CRAWL_SKIP_EXTENSIONS = frozenset({
-    ".pdf", ".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp", ".ico",
-    ".zip", ".tar", ".gz", ".exe", ".dmg", ".pkg",
-    ".mp4", ".mp3", ".wav", ".avi", ".mov", ".webm",
-    ".css", ".js", ".json", ".xml",
-    ".woff", ".woff2", ".ttf", ".eot", ".otf",
-    ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
-})
-
-
-def _strip_www(netloc: str) -> str:
-    s = netloc.lower()
-    return s[4:] if s.startswith("www.") else s
-
-
-def _resolve_url(href: str, current: str, base_netloc: str) -> Optional[str]:
-    """Resolve href to an absolute normalized internal URL, or None if it should be skipped."""
-    if not href or href.startswith(("mailto:", "tel:", "javascript:", "#")):
-        return None
-    try:
-        absolute = urljoin(current, href)
-        if "#" in absolute:
-            absolute = absolute[: absolute.index("#")]
-        parsed = urlparse(absolute)
-        if parsed.scheme not in ("http", "https"):
-            return None
-        if _strip_www(parsed.netloc) != _strip_www(base_netloc):
-            return None
-        if os.path.splitext(parsed.path.lower())[1] in _CRAWL_SKIP_EXTENSIONS:
-            return None
-        # Normalize: strip trailing slash except for root path
-        if parsed.path not in ("", "/") and absolute.endswith("/"):
-            absolute = absolute.rstrip("/")
-        return absolute
-    except Exception:
-        return None
-
-
-def _fetch_sitemap_urls(base_url: str) -> set:
-    """
-    Fetch and parse /sitemap.xml, returning a normalized set of page URLs.
-    Handles sitemap index files one level deep.
-    Returns an empty set if the sitemap is missing or unparseable.
-    """
-    import xml.etree.ElementTree as ET
-
-    parsed = urlparse(base_url)
-    sitemap_url = f"{parsed.scheme}://{parsed.netloc}/sitemap.xml"
-
-    def _parse_xml(text: str):
-        page_urls: set = set()
-        sub_sitemaps: List[str] = []
-        try:
-            root = ET.fromstring(text)
-            ns_match = re.match(r"\{[^}]+\}", root.tag)
-            ns = ns_match.group(0) if ns_match else ""
-            tag = root.tag.split("}")[-1] if "}" in root.tag else root.tag
-            if tag.lower() == "sitemapindex":
-                for sm in root.findall(f"{ns}sitemap"):
-                    loc = sm.find(f"{ns}loc")
-                    if loc is not None and loc.text:
-                        sub_sitemaps.append(loc.text.strip())
-            else:
-                for url_elem in root.findall(f"{ns}url"):
-                    loc = url_elem.find(f"{ns}loc")
-                    if loc is not None and loc.text:
-                        page_urls.add(loc.text.strip().rstrip("/"))
-        except ET.ParseError:
-            pass
-        return page_urls, sub_sitemaps
-
-    urls: set = set()
-    try:
-        resp = requests.get(sitemap_url, timeout=_HTTP_TIMEOUT, headers=_HEADERS)
-        if resp.status_code != 200:
-            return urls
-        page_urls, sub_sitemaps = _parse_xml(resp.text)
-        urls.update(page_urls)
-        for sub_url in sub_sitemaps[:10]:  # cap at 10 sub-sitemaps
-            try:
-                sub_resp = requests.get(sub_url, timeout=_HTTP_TIMEOUT, headers=_HEADERS)
-                if sub_resp.status_code == 200:
-                    sub_urls, _ = _parse_xml(sub_resp.text)
-                    urls.update(sub_urls)
-            except Exception:
-                pass
-    except Exception:
-        pass
-    return urls
-
-
-def _crawl_get(
-    url: str,
-    method: str = "GET",
-    stream: bool = False,
-) -> requests.Response:
-    """
-    HTTP GET/HEAD with retry and exponential backoff.
-    - 429 (rate-limited): waits 5s, 10s, 20s before each retry.
-    - Timeout / connection error: waits 2s, 4s before each retry.
-    Raises requests.exceptions.RequestException after all retries are exhausted.
-    """
-    kwargs: dict = {"timeout": _HTTP_TIMEOUT, "allow_redirects": True, "headers": _HEADERS}
-    if stream:
-        kwargs["stream"] = True
-    fn = requests.head if method == "HEAD" else requests.get
-    last_exc: Optional[Exception] = None
-    for attempt in range(_CRAWL_MAX_RETRIES):
-        try:
-            resp = fn(url, **kwargs)
-            if resp.status_code == 429 and attempt < _CRAWL_MAX_RETRIES - 1:
-                wait = _CRAWL_BACKOFF_429 * (2 ** attempt)
-                print(f"[crawl] 429 rate-limited, retrying in {wait}s: {url}")
-                time.sleep(wait)
-                continue
-            if resp.status_code >= 500 and attempt < _CRAWL_MAX_RETRIES - 1:
-                time.sleep(_CRAWL_BACKOFF_ERR * (2 ** attempt))
-                continue
-            return resp
-        except requests.exceptions.RequestException as exc:
-            last_exc = exc
-            if attempt < _CRAWL_MAX_RETRIES - 1:
-                time.sleep(_CRAWL_BACKOFF_ERR * (2 ** attempt))
-    raise last_exc or requests.exceptions.RequestException(f"Failed after retries: {url}")
-
-
-def gather_site_crawl_facts(url: str, max_pages: int = 100) -> dict:
-    """
-    BFS crawler: visits up to max_pages internal pages and collects site-wide
-    health signals comparable to a SEMrush site audit.
-
-    Detects per-page: titles, meta descriptions, H1s, canonical tags,
-    hreflang self-references, images missing alt, word count, text-to-HTML
-    ratio, empty anchor links, HTTP status codes, and crawl depth.
-    Also detects orphan pages (reachable by crawl but absent from sitemap).
-
-    Requires: beautifulsoup4 (pip install beautifulsoup4)
-    """
-    try:
-        from bs4 import BeautifulSoup
-    except ImportError:
-        print("[crawl] beautifulsoup4 not installed — skipping site crawl.")
-        return {
-            "crawl_ran": False,
-            "crawl_error": "beautifulsoup4 not installed (pip install beautifulsoup4)",
-            "pages_crawled": 0,
-        }
-
-    base_netloc = urlparse(url).netloc
-    is_https_site = url.startswith("https://")
-    result = {
-        "crawl_ran": False,
-        "crawl_error": None,
-        "pages_crawled": 0,
-        "crawl_errors": 0,          # pages that failed to load during crawl
-        "broken_internal_links": 0, # link occurrences pointing to 4xx/5xx internal pages
-        "broken_internal_urls": 0,  # unique count of broken internal URLs
-        "https_to_http_links": 0,   # internal links using http:// on an https site
-        "redirect_pages": 0,
-        "permanent_redirects": 0,    # 301
-        "temporary_redirects": 0,    # 302
-        "missing_title": 0,
-        "short_title": 0,
-        "long_title": 0,
-        "duplicate_titles": 0,
-        "missing_meta_descriptions": 0,
-        "duplicate_meta_descriptions": 0,
-        "missing_h1": 0,
-        "multiple_h1": 0,
-        "h1_duplicates_title": 0,
-        "missing_canonical": 0,
-        "pages_without_hreflang": 0,
-        "pages_hreflang_no_self": 0,
-        "images_missing_alt_total": 0,
-        "pages_with_missing_alt": 0,
-        "avg_word_count": None,
-        "thin_content_pages": 0,
-        "avg_text_to_html_ratio": None,
-        "empty_anchor_links_total": 0,
-        # Depth metrics
-        "max_crawl_depth": None,
-        "avg_crawl_depth": None,
-        "pages_deep_crawl": 0,          # pages at click depth > 3
-        # Orphan detection
-        "sitemap_urls_count": None,
-        "orphan_pages": None,           # crawlable but absent from sitemap
-        # Scope note for downstream consumers (e.g. GPT prompt)
-        "crawl_scope_note": None,
-    }
-
-    queue: deque = deque([(url, 0)])    # (url, depth)
-    visited: set = set()
-    enqueued: set = {url.rstrip("/")}
-    status_by_url: Dict[str, int] = {}   # normalized_url → HTTP status (0 = connection error)
-    link_targets: Dict[str, List[str]] = {}  # normalized_target → [source_url, ...]
-    depth_by_url: Dict[str, int] = {}    # normalized_url → click depth from homepage
-    crawled_html_urls: set = set()       # URLs where HTML was successfully parsed
-    titles: Counter = Counter()
-    metas: Counter = Counter()
-    word_counts: List[int] = []
-    html_ratios: List[float] = []
-
-    try:
-        while queue and len(visited) < max_pages:
-            current, depth = queue.popleft()
-            normalized = current.rstrip("/")
-            if normalized in visited:
-                continue
-            visited.add(normalized)
-            depth_by_url[normalized] = depth
-
-            try:
-                resp = _crawl_get(current)
-            except Exception:
-                result["crawl_errors"] += 1
-                status_by_url[normalized] = 0
-                continue
-
-            status_by_url[normalized] = resp.status_code
-            # Also record the final URL if redirected
-            if resp.history:
-                result["redirect_pages"] += 1
-                # Use last hop — that's the redirect that matters for SEO
-                # (e.g. http→301→https→302→canonical: the 302 is the problem)
-                last_hop_status = resp.history[-1].status_code
-                if last_hop_status == 301:
-                    result["permanent_redirects"] += 1
-                elif last_hop_status == 302:
-                    result["temporary_redirects"] += 1
-                final_key = resp.url.rstrip("/")
-                visited.add(final_key)
-                status_by_url[final_key] = resp.status_code
-
-            if resp.status_code >= 400:
-                result["crawl_errors"] += 1
-                continue
-
-            if "text/html" not in resp.headers.get("Content-Type", "").lower():
-                continue
-
-            raw_html = resp.text
-            soup = BeautifulSoup(raw_html, "html.parser")
-            result["pages_crawled"] += 1
-            crawled_html_urls.add(normalized)
-
-            # Title
-            title_tag = soup.find("title")
-            title_text = title_tag.get_text().strip() if title_tag else ""
-            if not title_text:
-                result["missing_title"] += 1
-            else:
-                if len(title_text) < 30:
-                    result["short_title"] += 1
-                elif len(title_text) > 60:
-                    result["long_title"] += 1
-                titles[title_text.lower()] += 1
-
-            # Meta description
-            meta_tag = soup.find("meta", attrs={"name": re.compile(r"^description$", re.I)})
-            meta_content = (meta_tag.get("content", "") or "").strip() if meta_tag else ""
-            if not meta_content:
-                result["missing_meta_descriptions"] += 1
-            else:
-                metas[meta_content.lower()] += 1
-
-            # H1
-            h1_tags = soup.find_all("h1")
-            h1_texts = [h.get_text(strip=True) for h in h1_tags]
-            if len(h1_tags) == 0:
-                result["missing_h1"] += 1
-            elif len(h1_tags) > 1:
-                result["multiple_h1"] += 1
-            if h1_texts and title_text and h1_texts[0].lower() == title_text.lower():
-                result["h1_duplicates_title"] += 1
-
-            # Canonical
-            canonical_tag = soup.find("link", rel=re.compile(r"canonical", re.I))
-            if not canonical_tag or not canonical_tag.get("href"):
-                result["missing_canonical"] += 1
-
-            # Hreflang self-reference
-            hreflang_tags = [
-                t for t in soup.find_all("link", rel=True)
-                if "alternate" in (t.get("rel") or []) and t.get("hreflang")
-            ]
-            if not hreflang_tags:
-                result["pages_without_hreflang"] += 1
-            else:
-                current_norm = resp.url.rstrip("/")
-                has_self = any(
-                    t.get("href", "").rstrip("/") == current_norm
-                    for t in hreflang_tags
-                )
-                if not has_self:
-                    result["pages_hreflang_no_self"] += 1
-
-            # Images missing alt
-            missing_alt = sum(
-                1 for img in soup.find_all("img")
-                if not img.get("alt", "").strip()
-            )
-            result["images_missing_alt_total"] += missing_alt
-            if missing_alt > 0:
-                result["pages_with_missing_alt"] += 1
-
-            # Word count + text-to-HTML ratio
-            for tag in soup(["script", "style", "noscript"]):
-                tag.decompose()
-            page_text = soup.get_text(separator=" ")
-            word_count = len(page_text.split())
-            word_counts.append(word_count)
-            if word_count < 300:
-                result["thin_content_pages"] += 1
-            if raw_html:
-                html_ratios.append(len(page_text) / max(len(raw_html), 1))
-
-            # Single pass over all anchors:
-            # empty anchor detection + link target recording + https_to_http + queue
-            for a in soup.find_all("a", href=True):
-                href = a["href"]
-
-                # Empty anchor: no visible text and no alt on inner image
-                if not a.get_text(strip=True):
-                    img_inside = a.find("img")
-                    if not img_inside or not img_inside.get("alt", "").strip():
-                        result["empty_anchor_links_total"] += 1
-
-                resolved = _resolve_url(href, resp.url, base_netloc)
-                if not resolved:
-                    continue
-
-                key = resolved.rstrip("/")
-
-                # Explicit http:// link to the same domain on an https site
-                if is_https_site and resolved.startswith("http://"):
-                    result["https_to_http_links"] += 1
-
-                # Record as a link target for broken-link detection
-                if key not in link_targets:
-                    link_targets[key] = []
-                link_targets[key].append(resp.url)
-
-                # Queue management
-                if key not in visited and key not in enqueued:
-                    enqueued.add(key)
-                    queue.append((resolved, depth + 1))
-
-        # HEAD-check any internal link targets we never visited during the crawl.
-        # Cap at 200 checks to bound total time.
-        unvisited = [
-            (key, sources)
-            for key, sources in link_targets.items()
-            if key not in status_by_url
-        ][:200]
-        if unvisited:
-            print(f"[crawl] Checking {len(unvisited)} unvisited link targets ...")
-        for key, _ in unvisited:
-            try:
-                head = _crawl_get(key, method="HEAD")
-                if head.status_code == 405:
-                    # Server does not allow HEAD — fall back to GET with streaming
-                    get = _crawl_get(key, stream=True)
-                    get.close()
-                    status_by_url[key] = get.status_code
-                else:
-                    status_by_url[key] = head.status_code
-            except Exception:
-                status_by_url[key] = 0
-
-        # Compute broken internal link counts
-        broken_keys = {k for k, s in status_by_url.items() if s == 0 or s >= 400}
-        result["broken_internal_links"] = sum(
-            len(sources)
-            for key, sources in link_targets.items()
-            if key in broken_keys
-        )
-        result["broken_internal_urls"] = sum(
-            1 for key in link_targets if key in broken_keys
-        )
-
-        # Depth metrics
-        if depth_by_url:
-            depths = list(depth_by_url.values())
-            result["max_crawl_depth"] = max(depths)
-            result["avg_crawl_depth"] = round(sum(depths) / len(depths), 1)
-            result["pages_deep_crawl"] = sum(1 for d in depths if d > 3)
-
-        # Orphan detection — pages reachable by crawl but absent from sitemap
-        sitemap_urls = _fetch_sitemap_urls(url)
-        result["sitemap_urls_count"] = len(sitemap_urls) if sitemap_urls else None
-        if sitemap_urls:
-            sitemap_norm = {u.rstrip("/") for u in sitemap_urls}
-            result["orphan_pages"] = sum(
-                1 for u in crawled_html_urls if u not in sitemap_norm
-            )
-
-        # Aggregates — count affected pages, not distinct duplicate groups
-        # e.g. 3 pages sharing the same title → duplicate_titles = 3, not 1
-        result["duplicate_titles"] = sum(c for c in titles.values() if c > 1)
-        result["duplicate_meta_descriptions"] = sum(c for c in metas.values() if c > 1)
-        if word_counts:
-            result["avg_word_count"] = round(sum(word_counts) / len(word_counts))
-        if html_ratios:
-            result["avg_text_to_html_ratio"] = round(
-                sum(html_ratios) / len(html_ratios), 3
-            )
-        capped = len(visited) >= max_pages
-        scope_note = f"BFS crawl, {result['pages_crawled']} HTML pages parsed (cap: {max_pages})."
-        if capped:
-            scope_note += " Cap reached; depth and orphan counts reflect the crawled sample only."
-        scope_note += (
-            " orphan_pages = pages reachable by crawl but absent from sitemap"
-            " (not strictly SEO-orphaned; may include paginated/tag pages)."
-        )
-        result["crawl_scope_note"] = scope_note
-
-        result["crawl_ran"] = True
-        print(
-            f"[crawl] Done. {result['pages_crawled']} pages crawled, "
-            f"{result['broken_internal_links']} broken link occurrences "
-            f"({result['broken_internal_urls']} unique URLs), "
-            f"{result['missing_meta_descriptions']} missing meta descriptions."
-        )
-    except Exception as e:
-        result["crawl_error"] = str(e)
-        print(f"[crawl] ERROR: {e}")
-
-    return result
-
-
-# ---------------------------------------------------------------------------
-# Orchestration - competitor benchmark (homepage PSI only)
-# ---------------------------------------------------------------------------
-
-def gather_competitor_p2_facts(url: str, api_key: Optional[str] = None) -> dict:
-    """
-    Run PSI on a competitor's homepage (mobile + desktop) for benchmark data.
-    Returns a compact dict that gets merged into the competitor's facts entry.
-    """
-    if api_key is None:
-        api_key = os.environ.get("GOOGLE_PAGESPEED_API_KEY")
-
-    print(f"[p2]   Competitor PSI: {url} ...")
-    mobile = gather_pagespeed_data(url, strategy="mobile", api_key=api_key)
-    time.sleep(_PSI_DELAY)
-    desktop = gather_pagespeed_data(url, strategy="desktop", api_key=api_key)
-
-    return {
-        "p2_mobile_performance": mobile.get("performance_score"),
-        "p2_mobile_seo": mobile.get("seo_score"),
-        "p2_mobile_accessibility": mobile.get("accessibility_score"),
-        "p2_mobile_lcp": mobile.get("lcp"),
-        "p2_mobile_cls": mobile.get("cls"),
-        "p2_mobile_inp": mobile.get("inp"),
-        "p2_desktop_performance": desktop.get("performance_score"),
-        "p2_desktop_seo": desktop.get("seo_score"),
-        "p2_desktop_lcp": desktop.get("lcp"),
-        "p2_cwv_lcp_category": mobile.get("cwv_lcp_category"),
-        "p2_cwv_cls_category": mobile.get("cwv_cls_category"),
-        "p2_cwv_inp_category": mobile.get("cwv_inp_category"),
-        "p2_psi_ran": mobile.get("psi_ran") or desktop.get("psi_ran"),
-    }
