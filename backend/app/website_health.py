@@ -24,7 +24,7 @@ import requests
 PSI_ENDPOINT = "https://www.googleapis.com/pagespeedonline/v5/runPagespeed"
 _HTTP_TIMEOUT = 12   # seconds for simple GET checks
 _PSI_CONNECT_TIMEOUT = 10
-_PSI_READ_TIMEOUT = 70
+_PSI_READ_TIMEOUT = 180
 _PSI_DELAY = 0.5     # seconds between PSI calls (courtesy, not required)
 
 _HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; PowerlingAudit/1.0)"}

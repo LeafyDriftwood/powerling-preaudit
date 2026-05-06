@@ -364,6 +364,13 @@ def gather_pillar1_facts(url: str) -> dict:
             print(f"[crawler] Loading {url} ...")
             page.goto(url, wait_until="domcontentloaded")
 
+            # Wait for hreflang tags to appear — JS frameworks (e.g. Next.js) may inject
+            # them after domcontentloaded, so reading immediately can return 0 tags.
+            try:
+                page.wait_for_selector('link[rel="alternate"][hreflang]', timeout=5000)
+            except Exception:
+                pass  # Site has no hreflang tags, or they didn't load in time — continue
+
             raw_hreflang = page.evaluate("""() => {
                 return Array.from(
                     document.querySelectorAll('link[rel="alternate"][hreflang]')

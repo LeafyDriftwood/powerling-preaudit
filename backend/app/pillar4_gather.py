@@ -390,6 +390,11 @@ on the page, account activity notes, or anything that would help an auditor inte
 data — add a "note" key to that object. Notes are optional and free-form; use your judgement.
 Notes must be plain text — no markdown links or citations.
 
+Numeric requirements: For all review count fields (glassdoor_reviews, indeed_reviews,
+trustpilot_reviews, google_reviews_count), return exact integers or null. Do not include
+commas, plus signs, "K"/"M" shorthand, or text like "around" or "approximately". If the
+exact count is unavailable, return null.
+
 {{
   "social_media": {{
     "linkedin":  {{"url": "...", "followers": "...", "last_active": "...", "note": "..."}},

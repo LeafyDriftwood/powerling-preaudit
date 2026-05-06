@@ -164,8 +164,6 @@ def main():
         gather_pagespeed_data,
         gather_homepage_technical_facts,
         gather_pillar2_facts,
-        gather_competitor_p2_facts,
-        gather_site_crawl_facts,
     )
 
     print(f"\n{'='*60}")
@@ -296,7 +294,12 @@ def main():
     # -----------------------------------------------------------------------
     elif crawl_only:
         print(f"\nRunning site crawl only for {url} (max {max_pages} pages) ...")
-        crawl = gather_site_crawl_facts(url, max_pages=max_pages)
+        try:
+            from app.website_health import gather_site_crawl_facts
+            crawl = gather_site_crawl_facts(url, max_pages=max_pages)
+        except ImportError:
+            print("  gather_site_crawl_facts not available — use gather_pillar2_facts instead (no --crawl-only flag)")
+            crawl = {}
         print(f"\n{'='*60}")
         print("  SITE CRAWL RESULTS")
         print(f"{'='*60}")
@@ -306,23 +309,13 @@ def main():
     # Competitor benchmark
     # -----------------------------------------------------------------------
     if competitor:
-        from app.website_health import gather_competitor_p2_facts
         print(f"\n{'='*60}")
         print(f"  COMPETITOR: {competitor}")
         print(f"{'='*60}")
-        comp = gather_competitor_p2_facts(competitor, api_key=api_key)
-        print(f"PSI ran:              {fmt(comp.get('p2_psi_ran'))}")
-        print(f"Performance (mobile): {fmt(comp.get('p2_mobile_performance'))}")
-        print(f"Performance (desktop):{fmt(comp.get('p2_desktop_performance'))}")
-        print(f"SEO (mobile):         {fmt(comp.get('p2_mobile_seo'))}")
-        print(f"Accessibility:        {fmt(comp.get('p2_mobile_accessibility'))}")
-        print(f"LCP (mobile):         {fmt(comp.get('p2_mobile_lcp'))}")
-        print(f"CLS (mobile):         {fmt(comp.get('p2_mobile_cls'))}")
-        print(f"INP (mobile):         {fmt(comp.get('p2_mobile_inp'))}")
-        print(f"LCP (desktop):        {fmt(comp.get('p2_desktop_lcp'))}")
-        print(f"CWV LCP:              {fmt(comp.get('p2_cwv_lcp_category'))}")
-        print(f"CWV CLS:              {fmt(comp.get('p2_cwv_cls_category'))}")
-        print(f"CWV INP:              {fmt(comp.get('p2_cwv_inp_category'))}")
+        comp_mobile = gather_pagespeed_data(competitor, strategy="mobile", api_key=api_key)
+        comp_desktop = gather_pagespeed_data(competitor, strategy="desktop", api_key=api_key)
+        print_psi_block("mobile", comp_mobile)
+        print_psi_block("desktop", comp_desktop)
 
     # -----------------------------------------------------------------------
     # Full JSON dump

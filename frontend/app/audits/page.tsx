@@ -34,19 +34,36 @@ export default function AuditListPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(`${process.env.NEXT_PUBLIC_API_URL}/audits`)
-      .then(async (r) => {
-        if (!r.ok) throw new Error(`Server error: ${r.status}`);
-        return r.json();
-      })
-      .then((data) => {
-        setAudits(data);
-        setLoading(false);
-      })
-      .catch(() => {
-        setError('Failed to load audits. Is the backend running?');
-        setLoading(false);
-      });
+    const fetchAudits = () =>
+      fetch(`${process.env.NEXT_PUBLIC_API_URL}/audits`)
+        .then(async (r) => {
+          if (!r.ok) throw new Error(`Server error: ${r.status}`);
+          return r.json();
+        })
+        .then((data: AuditSummary[]) => {
+          setAudits(data);
+          setLoading(false);
+          return data;
+        })
+        .catch(() => {
+          setError('Failed to load audits. Is the backend running?');
+          setLoading(false);
+          return [] as AuditSummary[];
+        });
+
+    fetchAudits().then((data) => {
+      const hasInProgress = data.some((a) => a.status === 'pending' || a.status === 'processing');
+      if (!hasInProgress) return;
+
+      const interval = setInterval(() => {
+        fetchAudits().then((latest) => {
+          const stillInProgress = latest.some((a) => a.status === 'pending' || a.status === 'processing');
+          if (!stillInProgress) clearInterval(interval);
+        });
+      }, 5000);
+
+      return () => clearInterval(interval);
+    });
   }, []);
 
   return (

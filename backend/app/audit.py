@@ -70,16 +70,6 @@ def gather_all_client_data(url: str, company_name: str, crawler_facts: dict = No
 
     Returns (pillar1_data, pillar3_data).
     """
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are an expert digital auditor. You research websites thoroughly using web search "
-                "to gather accurate, quantitative information. Always return valid JSON with no markdown fences."
-            ),
-        }
-    ]
-
     # ------------------------------------------------------------------
     # Turn 1: Globalization
     # ------------------------------------------------------------------
@@ -115,10 +105,6 @@ def gather_all_client_data(url: str, company_name: str, crawler_facts: dict = No
         hreflang_tags_count = len(crawler_facts.get("hreflang_tags", []))
         print(f"[audit]   hreflang tags count: {hreflang_tags_count}")
         target_langs_json = json.dumps(crawler_facts.get("target_languages", []), ensure_ascii=False)
-        available_lang_variants_json = json.dumps(
-            crawler_facts.get("available_language_variants", crawler_facts.get("available_languages", [])),
-            ensure_ascii=False,
-        )
 
         x_default_status = (
             f"Yes, pointing to {crawler_facts.get('hreflang_x_default_url')}"
@@ -132,7 +118,6 @@ You are auditing the website {url} for globalization.
 The following structural facts have been confirmed by direct website analysis.
 Use these EXACT values in your JSON response for the listed fields - do not re-research them:
   available_languages: {crawler_facts['available_languages']}
-    available_language_variants: {available_lang_variants_json}
   language_selector_type: "{crawler_facts['language_selector_type']}"
     locale_urls: {locale_urls_json}
   hreflang_present: {crawler_facts['hreflang_present']} ({hreflang_tags_count} tags detected)
@@ -153,8 +138,7 @@ Examples: a French subdomain, a country-specific TLD (.de, .fr), a separate shop
 For each found, note the domain name, primary language served, and target market.
 
 STEP 3 - Derive required languages from the geographic footprint found in Step 1:
-IMPORTANT: required_languages must reflect the company's ACTUAL global reach - NOT just the languages currently on the website.
-Example: a company operating in 90+ countries across Europe, MENA, APAC, and Latin America needs Arabic, Mandarin, Japanese, Korean, Russian, Turkish, Polish, etc. - even if those are not currently on the site.
+IMPORTANT: Derive required languages from market demand, not from what is already live on the site. The company may have built more languages than their markets actually require, or fewer. Focus on languages where there is a substantial customer segment in a key market that justifies a dedicated full translated UX. Do not anchor on the available_languages list above — that tells you what exists, not what is needed.
 
 STEP 4 - Note translation quality on the website:
 Any observations on machine vs. professional translation, inconsistencies, or untranslated sections.
@@ -163,18 +147,19 @@ STEP 5 - Traffic data:
 Approximate monthly organic traffic volume (from public sources if findable), and top 3-5 traffic source countries.
 
 Return ONLY a valid JSON object with no markdown fences.
-Only return the fields below — do NOT include available_languages, available_language_variants,
-language_selector_type, locale_urls, hreflang_present, pages_checked,
-target_languages, or mixed_language_ux_issues_detail as those are already known:
+Only return the fields below — do NOT include available_languages, language_selector_type,
+locale_urls, hreflang_present, pages_checked, target_languages,
+or mixed_language_ux_issues_detail as those are already known:
+IMPORTANT: The JSON below shows field names and value types ONLY. Do NOT copy these example values — replace every value with your actual research findings above.
 {{
-  "geographic_presence": "Present in 90+ countries across Europe (65%), MENA (7.5%), APAC (7.5%), Latin America (7.5%), North America (5%)",
-  "required_languages": ["EN", "FR", "DE", "ES", "IT", "PT", "NL", "AR", "ZH", "JA", "KO", "RU", "TR", "PL"],
-  "mixed_language_ux_issues": "Brief plain-text summary e.g. French CTAs found on German and English locale pages",
-  "translation_quality_notes": "...",
-  "lcr_notes": "...",
-  "estimated_monthly_traffic": "500K-1M",
-  "top_traffic_countries": ["FR", "DE", "US"],
-  "regional_sites": [{{"domain": "example-fr.com", "language": "FR", "market": "France", "note": "Separate French market website"}}]
+  "geographic_presence": "[your actual finding: regions and country count]",
+  "required_languages": ["XX", "XX"],
+  "mixed_language_ux_issues": "[brief plain-text summary, or 'None detected']",
+  "translation_quality_notes": "[your actual finding]",
+  "lcr_notes": "[your actual finding]",
+  "estimated_monthly_traffic": "[your actual finding or 'unknown']",
+  "top_traffic_countries": ["XX", "XX", "XX"],
+  "regional_sites": [{{"domain": "[domain]", "language": "XX", "market": "[market]", "note": "[note]"}}]
 }}
 """
     else:
@@ -192,7 +177,7 @@ STEP 2 - Check the website for language availability:
    Only count languages where the FULL user experience (navigation, product catalog, cart, checkout) is available.
    Do NOT count partial translations or blog-only languages.
 2. What type of language selector is used? (dropdown, flags, country selector, subdomain, path prefix like /en/, etc.)
-3. Are there any mixed-language UX issues? For example: untranslated CTAs ("En savoir plus") appearing on non-French pages, navigation labels in the wrong language, or inconsistent locale switching. Be specific if found.
+3. Are there any mixed-language UX issues? For example: inconsistent locale switching, untranslated labels, or content in the wrong language Be specific if found.
 4. Are hreflang tags present on the website?
 5. Any notes on translation quality (machine translation vs. professional, inconsistencies, etc.)?
 6. Approximate monthly organic traffic volume if findable (from public sources like SimilarWeb estimates).
@@ -202,29 +187,34 @@ STEP 3 - Search for any separate regional websites or market-specific domains op
 For each found, note: domain name, primary language, target market.
 
 STEP 4 - Derive required languages from the geographic footprint found in Step 1:
-IMPORTANT: required_languages must reflect the company's ACTUAL global reach - NOT just the languages currently on the website.
-Example: a company operating in 90+ countries across Europe, MENA, APAC, and Latin America needs Arabic, Mandarin, Japanese, Korean, Russian, Turkish, Polish, etc. - even if those are not currently on the site.
+IMPORTANT: Derive required languages from market demand, not from what is already live on the site. The company may have built more languages than their markets actually require, or fewer. Focus on languages where there is a substantial customer segment in a key market that justifies a dedicated full translated UX. Do not anchor on the available_languages list above — that tells you what exists, not what is needed.
 
-Return ONLY a valid JSON object with no markdown fences:
+Return ONLY a valid JSON object with no markdown fences.
+IMPORTANT: The JSON below shows field names and value types ONLY. Do NOT copy these example values — replace every value with your actual research findings above.
 {{
-  "available_languages": ["EN", "FR", "DE"],
-  "language_selector_type": "dropdown with flags",
-  "geographic_presence": "Present in 90+ countries across Europe (65%), MENA (7.5%), APAC (7.5%), Latin America (7.5%), North America (5%)",
-  "required_languages": ["EN", "FR", "DE", "ES", "IT", "PT", "NL", "AR", "ZH", "JA", "KO", "RU", "TR", "PL"],
+  "available_languages": ["XX", "XX"],
+  "language_selector_type": "[your actual finding]",
+  "geographic_presence": "[your actual finding: regions and country count]",
+  "required_languages": ["XX", "XX"],
   "hreflang_present": false,
-  "mixed_language_ux_issues": "French CTAs ('En savoir plus') appear on German and English locale pages",
-  "translation_quality_notes": "...",
-  "lcr_notes": "...",
-  "estimated_monthly_traffic": "500K-1M",
-  "top_traffic_countries": ["FR", "DE", "US"],
+  "mixed_language_ux_issues": "[brief plain-text summary, or 'None detected']",
+  "translation_quality_notes": "[your actual finding]",
+  "lcr_notes": "[your actual finding]",
+  "estimated_monthly_traffic": "[your actual finding or 'unknown']",
+  "top_traffic_countries": ["XX", "XX", "XX"],
   "regional_sites": []
 }}
 """
 
-    messages.append({"role": "user", "content": turn1_prompt})
-
-    resp1 = client.chat.completions.create(model="gpt-4o-search-preview", messages=messages)
-    p1_text = resp1.choices[0].message.content
+    resp1 = client.responses.create(
+        model="gpt-5",
+        tools=[{"type": "web_search"}],
+        input=turn1_prompt,
+    )
+    usage = getattr(resp1, "usage", None)
+    if usage:
+        print(f"[audit] turn1 tokens: input={getattr(usage, 'input_tokens', '?')} output={getattr(usage, 'output_tokens', '?')}")
+    p1_text = resp1.output_text
     pillar1_data = _parse_json(p1_text, label="Turn1-Globalization")
     print("[audit]   Turn 1 (Globalization) complete.")
 
@@ -259,61 +249,71 @@ Return ONLY a valid JSON object with no markdown fences:
     else:
         cookie_instruction = "Search the website for a cookie consent banner."
 
+    geographic_presence = pillar1_data.get("geographic_presence", "unknown")
+    top_traffic_countries = pillar1_data.get("top_traffic_countries", [])
+
     turn2_prompt = f"""
 You are auditing the website {url} ({company_name}) for accessibility and legal compliance.
 
 Context from direct site analysis:
+- Geographic presence: {geographic_presence}
+- Top traffic countries: {top_traffic_countries}
 - Available languages: {available_languages}
 - Locale URLs: {locale_urls_json}
 - Cookie consent: {cookie_instruction}
 
-Use the languages and locale URLs above to infer the company's likely region(s) and applicable regulations (e.g., GDPR/CNIL/RGAA for French sites, ADA/WCAG for US-facing sites, EN 301 549 for EU public sector).
+Use the geographic presence and top traffic countries above to determine which regulatory frameworks apply (e.g. ADA for US, GDPR for EU, EN 301 549 for EU public sector). Do not assume — base this on the evidence above.
 
 Search the website and answer the following:
 1. Does the website have an accessibility statement? (yes/no, and URL if yes)
-2. Does the website have a cookie banner/consent mechanism? (yes/no, and provider if known e.g. OneTrust, Cookiebot)
+2. Does the website have a cookie banner/consent mechanism? (yes/no, and provider name if identifiable from the banner UI or page source)
 3. Does the website have a privacy policy? (yes/no)
 4. Does the website have a terms of service / terms of use? (yes/no)
-5. Are there any obvious WCAG accessibility issues (missing alt text, poor contrast, no skip navigation, missing form labels, etc.)?
+5. Are there any obvious WCAG accessibility issues? List only issues you can specifically verify on the site.
 6. Is the website GDPR compliant based on visible indicators?
 7. Does the website have an ADA compliance statement or mention ADA?
 8. What country/region is the company primarily based in?
 9. Has the company faced any accessibility-related lawsuits or complaints? Search public records.
 10. Does the website have a publicly accessible sitemap?
 11. What WCAG accessibility level does the website claim or appear to target? (e.g., "WCAG 2.1 AA", "WCAG 2.0 A", "RGAA v4.1 partial", "undeclared"). Check the footer, accessibility statement, and legal notices.
-12. How is alt text coverage across the site? Be specific: describe what you found (e.g., "consistent - most images have descriptive alt", "partial - some images use generic 'Image' text while others are descriptive", "missing - alt largely absent"). Note specific examples if found.
+12. How is alt text coverage across the site? Use one of: consistent / partial / missing / unknown, and describe your actual finding with specific examples from the site.
 13. How is keyboard navigation? Is there a visible "skip to content" or "skip to main" link? Any keyboard traps in navigation menus or carousels?
-14. Does the website use any third-party forms or scripts (e.g., Google reCAPTCHA, chat widgets, analytics) that introduce trackers before consent is given?
+14. Does the website use any third-party forms or scripts that introduce trackers before consent is given? Name the specific tools found if any.
 15. Are there any PDFs or downloadable documents? If so, do they appear to be text-based (selectable text, screen-reader friendly) or image-based scans?
 
-Return ONLY a valid JSON object with no markdown fences:
+Return ONLY a valid JSON object with no markdown fences.
+IMPORTANT: The JSON below shows field names and value types ONLY. Do NOT copy these example values — replace every value with your actual research findings above.
 {{
   "has_accessibility_statement": false,
   "accessibility_statement_url": null,
-  "has_cookie_banner": true,
-  "cookie_provider": "OneTrust",
-  "has_privacy_policy": true,
-  "has_terms_of_service": true,
-  "has_sitemap": true,
-  "wcag_issues": ["missing alt text on hero image", "low contrast on footer links"],
-  "wcag_level_claimed": "undeclared",
-  "alt_text_coverage": "partial - mix of descriptive alt and generic 'Image' on homepage modules",
-  "keyboard_navigation": "Skip link present on key templates; full keyboard coverage unverified",
-  "third_party_forms": "Google reCAPTCHA on contact and distributor forms",
-  "pdf_accessibility": "Text-based brochure PDFs found; structural tagging not verified",
-  "gdpr_indicators": true,
+  "has_cookie_banner": false,
+  "cookie_provider": null,
+  "has_privacy_policy": false,
+  "has_terms_of_service": false,
+  "has_sitemap": false,
+  "wcag_issues": ["[specific issue found]"],
+  "wcag_level_claimed": "[your actual finding or 'undeclared']",
+  "alt_text_coverage": "[your actual finding]",
+  "keyboard_navigation": "[your actual finding]",
+  "third_party_forms": "[your actual finding or null]",
+  "pdf_accessibility": "[your actual finding or null]",
+  "gdpr_indicators": false,
   "ada_indicators": false,
-  "primary_region": "France",
-  "applicable_regulations": ["GDPR", "CNIL", "RGAA"],
+  "primary_region": "[actual country]",
+  "applicable_regulations": ["[applicable regulation based on region]"],
   "accessibility_lawsuits": []
 }}
 """
 
-    resp2 = client.chat.completions.create(
-        model="gpt-4o-search-preview",
-        messages=[{"role": "user", "content": turn2_prompt}],
+    resp2 = client.responses.create(
+        model="gpt-5",
+        tools=[{"type": "web_search"}],
+        input=turn2_prompt,
     )
-    p3_text = resp2.choices[0].message.content
+    usage = getattr(resp2, "usage", None)
+    if usage:
+        print(f"[audit] turn2 tokens: input={getattr(usage, 'input_tokens', '?')} output={getattr(usage, 'output_tokens', '?')}")
+    p3_text = resp2.output_text
     pillar3_data = _parse_json(p3_text, label="Turn2-Accessibility")
     print("[audit]   Turn 2 (Accessibility) complete.")
 
@@ -337,17 +337,14 @@ def gather_competitor_benchmark_data(url: str, crawler_available_languages: list
     else:
         lang_note = ""
 
-    response = client.chat.completions.create(
-        model="gpt-4o-search-preview",
-        messages=[
-            {"role": "user", "content": f"""
+    comp_prompt = f"""
 Research the website {url} to gather competitive benchmark data. Search online for accurate, current information.
 
 {lang_note}Find the following, with actual numbers wherever possible:
 
 GLOBALIZATION:
 1. What languages are available on the website? Only count full UX languages (not partial translations).{' (ALREADY CONFIRMED ABOVE - use those values)' if crawler_available_languages is not None else ''}
-2. Search for the company's geographic presence first (countries, regions, distributor network). Then derive required languages based on that footprint - NOT from the available languages. A company in 50+ countries likely needs more than what is on the website.
+2. Search for the company's geographic presence (countries, regions, key markets). Based on that footprint, estimate how many languages would justify a full translated UX — counting only languages where there is a substantial customer segment, not every language in every country of operation. Return this as required_languages_count (integer).
 3. Brief description of global reach (number of countries, key regions).
 4. Estimated monthly traffic if findable.
 
@@ -361,38 +358,46 @@ ACCESSIBILITY & COMPLIANCE:
 11. Keyboard navigation quality: brief description, or "unknown"
 
 ONLINE REPUTATION:
-12. Brief brand recognition description (e.g., "Global leader in bio-decontamination", "Regional player in DACH").
+12. Brief factual description of their brand positioning based on what you find online.
 13. Digital engagement level: High / Medium / Low (based on social following + review volume).
 14. LinkedIn follower count - search directly for their LinkedIn company page by name.
 15. Total social media reach estimate across all platforms.
 16. Review score (Trustpilot or Google) if available.
 17. Overall online sentiment (positive / neutral / negative).
 
-Return ONLY a valid JSON object with no markdown fences:
+Return ONLY a valid JSON object with no markdown fences.
+IMPORTANT: The JSON below shows field names and value types ONLY. Do NOT copy these example values — replace every value with your actual research findings above.
 {{
-  "company_name": "Competitor Inc",
-  "available_languages": ["EN", "FR"],
-  "required_languages": ["EN", "FR", "DE", "ES", "ZH", "JA"],
-  "global_reach": "Present in 50+ countries across Europe and Asia",
-  "estimated_monthly_traffic": "200K-500K",
+  "company_name": "[actual company name]",
+  "available_languages": ["XX", "XX"],
+  "required_languages_count": 0,
+  "global_reach": "[your actual finding]",
+  "estimated_monthly_traffic": "[your actual finding or 'unknown']",
   "has_accessibility_statement": false,
-  "gdpr_indicators": true,
+  "gdpr_indicators": false,
   "ada_indicators": false,
-  "wcag_level_claimed": "undeclared",
-  "alt_text_coverage": "partial",
-  "keyboard_navigation": "unknown",
+  "wcag_level_claimed": "[your actual finding or 'undeclared']",
+  "alt_text_coverage": "[your actual finding]",
+  "keyboard_navigation": "[your actual finding]",
   "wcag_issues_noted": [],
-  "brand_recognition": "Global leader in bio-decontamination solutions",
-  "digital_engagement": "Medium",
-  "linkedin_followers": "15K",
-  "social_media_reach": "~40K followers across all platforms",
-  "review_score": 4.1,
-  "overall_sentiment": "positive"
+  "brand_recognition": "[1-2 sentence description]",
+  "digital_engagement": "[High / Medium / Low]",
+  "linkedin_followers": "[actual number or 'unknown']",
+  "social_media_reach": "[your actual finding or 'unknown']",
+  "review_score": null,
+  "overall_sentiment": "[positive / neutral / negative]"
 }}
-"""}
-        ],
+"""
+
+    response = client.responses.create(
+        model="gpt-5",
+        tools=[{"type": "web_search"}],
+        input=comp_prompt,
     )
-    return _parse_json(response.choices[0].message.content)
+    usage = getattr(response, "usage", None)
+    if usage:
+        print(f"[audit] competitor tokens: input={getattr(usage, 'input_tokens', '?')} output={getattr(usage, 'output_tokens', '?')}")
+    return _parse_json(response.output_text)
 
 
 # ---------------------------------------------------------------------------
@@ -437,10 +442,9 @@ def build_facts_pack(
 
     # Compute LCR and tier for each competitor
     for cf in competitor_facts:
-        cf["lcr_score"] = compute_lcr(
-            cf.get("available_languages", []),
-            cf.get("required_languages", [])
-        )
+        comp_required = cf.get("required_languages_count") or len(cf.get("required_languages", []))
+        comp_available = len(cf.get("available_languages", []))
+        cf["lcr_score"] = round((comp_available / comp_required) * 100, 1) if comp_required else 0.0
         cf["lcr_tier"] = compute_lcr_tier(cf["lcr_score"])
 
     return {
@@ -679,6 +683,12 @@ def run_audit(url: str, company_name: str, competitors: list) -> dict:
         except ImportError:
             from pillar4_gather import gather_pillar4_facts as _gather_p4
         pillar4_data = _gather_p4(url, company_name)
+        # Coerce review count fields from strings to ints (safety net for "50,000+" etc.)
+        for _field in ("google_reviews_count", "trustpilot_reviews", "glassdoor_reviews", "indeed_reviews"):
+            _val = pillar4_data.get(_field)
+            if isinstance(_val, str):
+                _cleaned = re.sub(r"[^\d]", "", _val)
+                pillar4_data[_field] = int(_cleaned) if _cleaned else None
         print(f"[audit]   Pillar 4 complete. Sentiment: {pillar4_data.get('overall_sentiment', 'N/A')}")
     except Exception as e:
         print(f"[audit]   Pillar 4 gathering failed: {e}")
@@ -724,6 +734,10 @@ def run_audit(url: str, company_name: str, competitors: list) -> dict:
     except Exception as e:
         print(f"[audit]   Pillar 2 gathering failed: {e}")
         pillar2_data = None
+
+    # Override GPT's has_sitemap guess with authoritative value from website_health HTTP check
+    if pillar2_data and pillar2_data.get("has_sitemap_xml") is not None:
+        pillar3_data["has_sitemap"] = pillar2_data["has_sitemap_xml"]
 
     # Phase 2: Crawl + gather competitor benchmark data (one crawler + one search call each)
     competitor_facts = []
