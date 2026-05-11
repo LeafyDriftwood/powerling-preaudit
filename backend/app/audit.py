@@ -7,23 +7,23 @@ Pipeline phases (run_audit):
             Followed by GPT-5 mixed language check across locale pages.
   Phase 0b: Website health data (website_health.py)
             Google PSI (mobile + desktop), DataForSEO OnPage crawl, homepage checks.
-  Phase 1:  Client data gathering - 2 independent gpt-4o-search-preview calls
+  Phase 1:  Client data gathering - 2 independent gpt-5 calls
             Turn 1: Globalization - crawler facts injected as authoritative; GPT
                     fills geographic_presence, required_languages, traffic only.
-            Turn 2: Accessibility & Compliance - independent call, no Turn 1 history.
-                    Playwright-detected cookie banner injected as authoritative.
+            Turn 2: Accessibility & Compliance - independent call; Turn 1 geographic
+                    context injected so GPT can infer applicable regulations.
   Phase 1b: Online reputation (pillar4_gather.py)
             YouTube API + GPT-5 web search.
-  Phase 2:  Competitor data - one Playwright crawl + one gpt-4o-search-preview call per competitor.
+  Phase 2:  Competitor data - one Playwright crawl + one gpt-5 call per competitor.
   Phase 3:  build_facts_pack - merges all data, computes LCR deterministically.
   Phase 4:  generate_ui_content - GPT-5 Responses API, no web search.
             Produces executive_summary, per-pillar headlines/findings/recommendations,
             competitive_landscape, top_recommendations.
 
 API strategy:
-- gpt-4o-search-preview (Chat Completions): web search calls. Does NOT support
-  response_format=json_object; JSON enforced via prompt + _parse_json().
-- gpt-5 (Responses API): UI content generation and mixed language detection.
+- gpt-5 (Responses API, tools=[web_search]): all web search calls. JSON enforced
+  via prompt + _parse_json() with json_repair fallback.
+- gpt-5 (Responses API, no tools): generate_ui_content only.
 """
 
 import json
@@ -49,6 +49,14 @@ def _parse_json(text: str, label: str = "") -> dict:
         print(f"{prefix}JSON parse error: {e}")
         print(f"{prefix}Response length: {len(text)} chars")
         print(f"{prefix}Last 300 chars: {text[-300:]!r}")
+        try:
+            from json_repair import repair_json
+            repaired = repair_json(text)
+            result = json.loads(repaired)
+            print(f"{prefix}Recovered via json_repair.")
+            return result
+        except Exception:
+            pass
         # Try to extract a JSON object from within the text (handles preamble/postamble)
         match = re.search(r'\{.*\}', text, re.DOTALL)
         if match:
@@ -128,22 +136,33 @@ Use these EXACT values in your JSON response for the listed fields - do not re-r
   mixed_language_ux_issues: {ml_detail}
 
 STEP 1 - Research the company's geographic presence:
-Search online for where {company_name} operates, sells, or has customers. Look for:
-- How many countries they are present in and which specific regions (Europe, APAC, MENA, Americas, CEE, etc.)
-- Their international distributor network, subsidiaries, or office locations
-- Any press releases, About pages, or annual reports mentioning global reach or country count
+Search for where {company_name} operates, sells, or has customers. Look for:
+- Number of countries and specific regions (Europe, APAC, MENA, Americas, CEE, etc.)
+- International distributor network, subsidiaries, or office locations
+- Press releases, About pages, or annual reports mentioning global reach or country count
 
-STEP 2 - Search for any separate regional websites or market-specific domains operated by {company_name} beyond {url}.
-Examples: a French subdomain, a country-specific TLD (.de, .fr), a separate shop or portal.
-For each found, note the domain name, primary language served, and target market.
+STEP 2 - Search for any separate regional websites or market-specific domains beyond {url}.
+For each found, note: domain name, primary language served, target market.
 
-STEP 3 - Derive required languages from the geographic footprint found in Step 1:
-IMPORTANT: Derive required languages from market demand, not from what is already live on the site. The company may have built more languages than their markets actually require, or fewer. Focus on languages where there is a substantial customer segment in a key market that justifies a dedicated full translated UX. Do not anchor on the available_languages list above — that tells you what exists, not what is needed.
+STEP 3 - Derive Required Languages (RL) from the geographic footprint found in Step 1:
+RL definition: identify the top 5-8 countries by traffic share using SimilarWeb or equivalent.
+Map each country to its dominant official or commercial language.
+RL = the distinct languages needed to serve those markets natively — no more, no fewer.
+required_languages must reflect the company's actual significant customer base,
+not what is already on the website and not an assumption about what a company "should" have.
+Derive it from the traffic data only.
 
-STEP 4 - Note translation quality on the website:
+STEP 4 - Available Languages (AL) validation rule:
+AL counts ONLY languages where the FULL user experience is available:
+navigation, product catalog, cart, checkout, and customer service all in that language.
+Do NOT count: partial translations, footer-only language switches, blog-only languages,
+or third-party subdomains not part of the main site.
+The crawler has already confirmed the available languages above. Use those exact values.
+
+STEP 5 - Note translation quality on the website:
 Any observations on machine vs. professional translation, inconsistencies, or untranslated sections.
 
-STEP 5 - Traffic data:
+STEP 6 - Traffic data:
 Approximate monthly organic traffic volume (from public sources if findable), and top 3-5 traffic source countries.
 
 Return ONLY a valid JSON object with no markdown fences.
@@ -167,27 +186,39 @@ IMPORTANT: The JSON below shows field names and value types ONLY. Do NOT copy th
 You are auditing the website {url} for globalization.
 
 STEP 1 - Research the company's geographic presence FIRST before looking at the website:
-Search online for where this company operates, sells, or has customers. Look for:
-- How many countries they are present in and which specific regions (Europe, APAC, MENA, Americas, CEE, etc.)
-- Their international distributor network, subsidiaries, or office locations
-- Any press releases, About pages, or annual reports mentioning global reach or country count
+Search for where this company operates, sells, or has customers. Look for:
+- Number of countries and specific regions (Europe, APAC, MENA, Americas, CEE, etc.)
+- International distributor network, subsidiaries, or office locations
+- Press releases, About pages, or annual reports mentioning global reach or country count
 
-STEP 2 - Check the website for language availability:
-1. What languages are available via the language/country selector on the website?
-   Only count languages where the FULL user experience (navigation, product catalog, cart, checkout) is available.
-   Do NOT count partial translations or blog-only languages.
-2. What type of language selector is used? (dropdown, flags, country selector, subdomain, path prefix like /en/, etc.)
-3. Are there any mixed-language UX issues? For example: inconsistent locale switching, untranslated labels, or content in the wrong language Be specific if found.
-4. Are hreflang tags present on the website?
-5. Any notes on translation quality (machine translation vs. professional, inconsistencies, etc.)?
-6. Approximate monthly organic traffic volume if findable (from public sources like SimilarWeb estimates).
-7. What are the top 3-5 traffic source countries?
+STEP 2 - Derive Required Languages (RL) from the geographic footprint found in Step 1:
+RL definition: identify the top 5-8 countries by traffic share using SimilarWeb or equivalent.
+Map each country to its dominant official or commercial language.
+RL = the distinct languages needed to serve those markets natively — no more, no fewer.
+required_languages must reflect the company's actual significant customer base,
+not what is already on the website and not an assumption about what a company "should" have.
+Derive it from the traffic data only.
 
-STEP 3 - Search for any separate regional websites or market-specific domains operated by this company beyond {url}.
+STEP 3 - Determine Available Languages (AL) from the website:
+AL counts ONLY languages where the FULL user experience is available:
+navigation, product catalog, cart, checkout, and customer service all in that language.
+Do NOT count: partial translations, footer-only language switches, blog-only languages,
+or third-party subdomains not part of the main site.
+Note the type of language selector (dropdown, flags, country selector, subdomain, path prefix, etc.).
+Also check: are hreflang tags present on the website?
+
+STEP 4 - Check for mixed-language UX issues:
+For example: untranslated CTAs appearing on non-matching locale pages, navigation in the wrong language,
+or inconsistent locale switching. Be specific if found.
+
+STEP 5 - Note translation quality on the website:
+Any observations on machine vs. professional translation, inconsistencies, or untranslated sections.
+
+STEP 6 - Search for any separate regional websites or market-specific domains beyond {url}.
 For each found, note: domain name, primary language, target market.
 
-STEP 4 - Derive required languages from the geographic footprint found in Step 1:
-IMPORTANT: Derive required languages from market demand, not from what is already live on the site. The company may have built more languages than their markets actually require, or fewer. Focus on languages where there is a substantial customer segment in a key market that justifies a dedicated full translated UX. Do not anchor on the available_languages list above — that tells you what exists, not what is needed.
+STEP 7 - Traffic data:
+Approximate monthly organic traffic if findable. Top 3-5 traffic source countries.
 
 Return ONLY a valid JSON object with no markdown fences.
 IMPORTANT: The JSON below shows field names and value types ONLY. Do NOT copy these example values — replace every value with your actual research findings above.

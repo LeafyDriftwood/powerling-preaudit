@@ -521,11 +521,19 @@ Return an empty array if no issues are found.
         try:
             result = json.loads(clean)
         except json.JSONDecodeError:
-            match = re.search(r'\[.*\]', clean, re.DOTALL)
-            if match:
-                result = json.loads(match.group())
-            else:
-                return []
+            try:
+                from json_repair import repair_json
+                result = json.loads(repair_json(clean))
+                print("  [json_repair] Recovered mixed-language JSON.")
+            except Exception:
+                match = re.search(r'\[.*\]', clean, re.DOTALL)
+                if match:
+                    try:
+                        result = json.loads(match.group())
+                    except json.JSONDecodeError:
+                        return []
+                else:
+                    return []
         if not isinstance(result, list):
             return []
         # Basic schema validation — drop malformed items

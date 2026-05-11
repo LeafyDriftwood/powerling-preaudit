@@ -9,3 +9,4 @@ pdfplumber==0.11.8
 python-dotenv==1.2.1
 tldextract==5.3.0
 python-multipart
+json-repair==0.44.1
