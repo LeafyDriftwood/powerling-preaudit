@@ -150,7 +150,11 @@ Map each country to its dominant official or commercial language.
 RL = the distinct languages needed to serve those markets natively — no more, no fewer.
 required_languages must reflect the company's actual significant customer base,
 not what is already on the website and not an assumption about what a company "should" have.
-Derive it from the traffic data only.
+Primary method: derive from traffic data (SimilarWeb top countries).
+Fallback (if traffic data is paywalled or unavailable): use the geographic footprint from Step 1
+to estimate the top markets by business volume, then map those to dominant languages.
+Document which method was used in lcr_notes. Never return an empty list — a best-effort
+estimate from geographic presence is always better than no data.
 
 STEP 4 - Available Languages (AL) validation rule:
 AL counts ONLY languages where the FULL user experience is available:
@@ -197,7 +201,11 @@ Map each country to its dominant official or commercial language.
 RL = the distinct languages needed to serve those markets natively — no more, no fewer.
 required_languages must reflect the company's actual significant customer base,
 not what is already on the website and not an assumption about what a company "should" have.
-Derive it from the traffic data only.
+Primary method: derive from traffic data (SimilarWeb top countries).
+Fallback (if traffic data is paywalled or unavailable): use the geographic footprint from Step 1
+to estimate the top markets by business volume, then map those to dominant languages.
+Document which method was used in lcr_notes. Never return an empty list — a best-effort
+estimate from geographic presence is always better than no data.
 
 STEP 3 - Determine Available Languages (AL) from the website:
 AL counts ONLY languages where the FULL user experience is available:
@@ -504,6 +512,7 @@ def generate_ui_content(facts: dict) -> dict:
     Generate all UI-ready text for the results dashboard.
     Uses GPT-5 from the facts pack directly — no web search needed.
     Returns structured dict: executive_summary, per-pillar content, competitive_landscape, top_recommendations.
+    Output is written for salespeople: plain language, no jargon, spoken sentences.
     """
     p1 = facts["pillar_1_globalization"]
     p2 = facts["pillar_2_website_health"]
@@ -534,106 +543,169 @@ def generate_ui_content(facts: dict) -> dict:
         for i, c in enumerate(cf)
     )
 
-    # PSI summary
+    # PSI summary — pre-computed to prevent GPT from inventing numbers
     perf_mobile = p2.get("performance_score_mobile")
     perf_desktop = p2.get("performance_score_desktop")
+    lcp_mobile = p2.get("lcp_mobile")
     site_health = p2.get("site_health_score")
+    broken_links = p2.get("broken_internal_urls", 0)
+    missing_metas = p2.get("missing_meta_descriptions", 0)
     psi_summary = (
-        f"Mobile performance {perf_mobile}/100, desktop {perf_desktop}/100, site health {site_health}/100"
+        f"Mobile performance {perf_mobile}/100, desktop {perf_desktop}/100, "
+        f"LCP mobile {lcp_mobile}, site health {site_health}/100, "
+        f"{broken_links} broken links, {missing_metas} pages missing meta descriptions"
         if perf_mobile is not None
         else "PageSpeed data not available"
     )
 
-    prompt = f"""You are a senior digital audit expert writing a concise, punchy executive dashboard for a pre-audit report.
+    # Geographic and language facts — pre-computed to prevent GPT drift on numbers
+    geographic_presence = p1.get("geographic_presence", "N/A")
+    lcr_available = p1.get("lcr_available", 0)
+    lcr_required = p1.get("lcr_required", 0)
+    lcr_score = p1.get("lcr_score", 0)
+    lcr_tier = p1.get("lcr_tier", "N/A")
+    available_languages = p1.get("available_languages", [])
+    required_languages = p1.get("required_languages", [])
+    missing_languages = [lang for lang in required_languages if lang not in available_languages]
 
-Company: {company_name}
-Website: {url}
+    # Reputation facts — pre-computed so GPT uses exact values
+    trustpilot_score = p4.get("trustpilot_score")
+    trustpilot_reviews = p4.get("trustpilot_reviews")
+    google_score = p4.get("google_reviews_score")
+    google_count = p4.get("google_reviews_count")
+    glassdoor_score = p4.get("glassdoor_score")
+    indeed_score = p4.get("indeed_score")
 
-PILLAR 1 - GLOBALIZATION:
-- Available languages: {p1.get('available_languages', [])} ({p1.get('lcr_available', 0)} of {p1.get('lcr_required', 0)} required)
-- Required languages: {p1.get('required_languages', [])}
-- LCR score: {p1.get('lcr_score', 0)}% ({p1.get('lcr_tier', 'N/A')})
-- Geographic presence: {p1.get('geographic_presence', 'N/A')}
-- Hreflang: {'Present' if p1.get('hreflang_present') else 'Missing'}
-- x-default: {'Present' if p1.get('hreflang_x_default_present') else 'Missing'}
-- Mixed language issues: {ml_summary}
-- Translation quality: {p1.get('translation_quality_notes', 'N/A')}
-- Regional/market-specific sites: {p1.get('regional_sites', [])}
+    prompt = f"""You are writing the pre-call briefing card for a salesperson.
+The salesperson has 2 minutes before a prospect call. They are not technical. They need sentences they can say out loud, not metrics, not acronyms, not audit jargon.
 
-PILLAR 2 - WEBSITE HEALTH:
+Company being audited: {company_name} ({url})
+
+FACTS (use these exact numbers — do not invent or alter them):
+
+GLOBALIZATION:
+- Geographic presence: {geographic_presence}
+- Languages on the website: {lcr_available} of {lcr_required} required ({", ".join(available_languages)})
+- Missing languages: {", ".join(missing_languages) if missing_languages else "None"}
+- Language mixing issues across locale pages: {ml_summary}
+- Language coverage: {lcr_score}% ({lcr_tier})
+
+WEBSITE HEALTH:
 - {psi_summary}
-- SEO score (mobile): {p2.get('seo_score_mobile', 'N/A')}, Accessibility score (mobile): {p2.get('accessibility_score_mobile', 'N/A')}
-- LCP mobile: {p2.get('lcp_mobile', 'N/A')}, CLS: {p2.get('cls_mobile', 'N/A')}
-- Core Web Vitals field data: LCP {p2.get('cwv_lcp_category', 'N/A')}, CLS {p2.get('cwv_cls_category', 'N/A')}, INP {p2.get('cwv_inp_category', 'N/A')}
-- Performance issues: render-blocking resources: {p2.get('render_blocking_resources', False)}, unused JavaScript: {p2.get('unused_javascript', False)}, unused CSS: {p2.get('unused_css', False)}
-- Pages crawled: {p2.get('pages_crawled', 0)}, broken links: {p2.get('broken_internal_urls', 0)}, missing meta descriptions: {p2.get('missing_meta_descriptions', 0)}
-- HSTS: {'Yes' if p2.get('hsts_present') else 'No'}, HTTPS redirect: {'Yes' if p2.get('https_redirect') else 'No'}
-- Schema markup: {p2.get('schema_types', 'None detected')}
 
-PILLAR 3 - ACCESSIBILITY & COMPLIANCE:
-- WCAG level claimed: {p3.get('wcag_level_claimed', 'undeclared')}
-- Accessibility statement: {'Yes' if p3.get('has_accessibility_statement') else 'No'}
-- Cookie consent: {'Yes' if p3.get('has_cookie_banner') else 'No'}
-- Applicable regulations: {p3.get('applicable_regulations', [])}
-- Key issues: {p3.get('wcag_issues', [])}
-- Alt text coverage: {p3.get('alt_text_coverage', 'unknown')}, Keyboard nav: {p3.get('keyboard_navigation', 'unknown')}
+ACCESSIBILITY:
+- Accessibility statement published: {"Yes" if p3.get("has_accessibility_statement") else "No"}
+- Cookie consent present: {"Yes" if p3.get("has_cookie_banner") else "No"}
+- Applicable regulations: {p3.get("applicable_regulations", [])}
+- Key issues detected: {p3.get("wcag_issues", [])}
 
-PILLAR 4 - ONLINE REPUTATION:
-- Overall sentiment: {p4.get('overall_sentiment', 'N/A')} - {p4.get('sentiment_justification', '')}
+ONLINE REPUTATION:
+- Trustpilot: {f"{trustpilot_score}/5 ({trustpilot_reviews} reviews)" if trustpilot_score else "No profile found"}
+- Google Reviews: {f"{google_score}/5 ({google_count} reviews)" if google_score else "None found"}
+- Glassdoor: {f"{glassdoor_score}/5" if glassdoor_score else "N/A"}
+- Indeed: {f"{indeed_score}/5" if indeed_score else "N/A"}
 - Social media: {social_summary}
-- Trustpilot: {p4.get('trustpilot_score', 'N/A')} ({p4.get('trustpilot_reviews', 'N/A')} reviews)
-- Google Reviews: {p4.get('google_reviews_score', 'N/A')} ({p4.get('google_reviews_count', 'N/A')} reviews)
-- Glassdoor: {p4.get('glassdoor_score', 'N/A')} ({p4.get('glassdoor_reviews', 'N/A')} reviews)
-- Indeed: {p4.get('indeed_score', 'N/A')} ({p4.get('indeed_reviews', 'N/A')} reviews)
-- Trade fair presence: {p4.get('trade_fair_presence', [])}
-- Credibility assets: {p4.get('credibility_assets', [])}
-- Recent news: {p4.get('recent_news', [])}
-- Controversies: {p4.get('controversies', [])}
+- Overall sentiment: {p4.get("overall_sentiment", "N/A")}
 
 COMPETITORS:
 {comp_summary}
 
-Write in US English. No em dashes. No markdown links or citations. Professional but direct tone.
-Each finding and recommendation must be one concise sentence. Include specific numbers where available.
+ROI BENCHMARKS (use only the ones relevant to each pillar — cite the source in parentheses):
+- Globalization: companies investing in localization report 20-30% revenue growth vs non-localized peers (Nimdzi Insights). 75% of online consumers prefer to buy when product info is in their native language (CSA Research).
+- Website Health: a 1-second reduction in load time yields approximately 7% improvement in conversion rate (Google/Deloitte). Technical SEO remediation produces 30-42% organic traffic growth within 3-6 months in documented cases (Backlinko).
+- Accessibility: accessible websites reach an additional 15-20% of potential users (WHO). EU non-compliance exposes businesses to fines of 5,000 to 250,000 euros per violation depending on member state (EAA, enforceable June 2025).
+- Online Reputation: a 1-star improvement on major review platforms correlates with 5-9% revenue increase (Harvard Business Review). Businesses that respond to reviews see 45% higher likelihood of customer selection (Google Consumer Survey).
+
+WRITING RULES — follow all of these exactly:
+
+1. Zero technical jargon in the executive summary and pillar cards. No acronyms: no LCR, LCP, CLS, WCAG, RGAA, hreflang, CTR, SERP, BCP 47, INP, FCP, TBT. Write as if explaining to a smart non-technical person.
+
+2. Write findings as problems the PROSPECT has, not observations about their website. "They are invisible in Germany" not "German locale has missing hreflang tags."
+
+3. Write recommendations as business outcomes, not technical tasks. "Reach 7 more markets" not "implement hreflang for missing locales."
+
+4. Determine traffic lights from these thresholds using the facts above:
+   - Globalization: red if coverage below 30%, orange if 30-60%, green if above 60%
+   - Website Health: red if mobile performance score below 50, orange if 50-70, green if above 70
+   - Accessibility: red if no accessibility statement and EU-based company, orange if partial, green if compliant
+   - Online Reputation: red if no reviews at all, orange if best available score below 4.0, green if score at or above 4.0
+
+5. objection_handler is one sentence the salesperson says when the prospect pushes back. Make it competitive and concrete, referencing a named competitor where possible.
+
+6. severity_rank: rank the four pillars 1 (most critical) to 4 (least critical) based on the facts. The executive_summary bullets must follow this ranking order.
+
+7. Executive summary bullets are spoken sentences about the prospect. Start each with a relevant emoji (choose from: ⚠️ 🐌 ⚖️ 📉 🌍 🔇 🔗 👻). Example: "They sell in 27 countries but only speak 3 languages — 24 markets cannot understand their website."
+
+8. Each pillar has exactly 2 supporting_facts. One sentence each, written as prospect pain, no jargon.
+
+9. roi_sentence: one sentence per pillar using a relevant benchmark from the ROI BENCHMARKS above. State an assumption before applying the benchmark. Present as a range, not a single figure. Label it a projection. Example: "Assuming estimated monthly traffic of 50,000 sessions, a 1-second load time improvement could lift conversions by approximately 7%, a projection based on Google and Deloitte research."
+
+10. No em dashes. Use periods or commas instead. No filler phrases (no "essentially," "basically," "actually"). No formal transitions (no "moreover," "furthermore," "in conclusion").
+
+11. Pull all country and language counts from the FACTS section above. Do not invent or round numbers.
 
 Return ONLY a valid JSON object with no markdown fences:
 {{
   "executive_summary": [
-    "Cross-pillar bullet 1 - most impactful finding with a specific number",
-    "Cross-pillar bullet 2 - second most important gap or strength",
-    "Cross-pillar bullet 3 - key competitive or compliance insight"
+    "emoji Sentence about the most critical problem, written as something a salesperson can say out loud",
+    "emoji Sentence about the second most critical problem",
+    "emoji Sentence about the third most critical problem"
   ],
   "pillar_1": {{
-    "headline": "Short 6-10 word headline summarizing globalization status",
-    "findings": ["Finding with specific data", "Finding 2", "Finding 3"],
-    "recommendations": ["Top action 1", "Top action 2", "Top action 3"]
+    "traffic_light": "red",
+    "headline": "One plain-language sentence summarizing the language situation",
+    "supporting_facts": [
+      "Prospect pain written as a business problem, no jargon",
+      "Second prospect pain, ideally with a named competitor comparison"
+    ],
+    "objection_handler": "One sentence for when the prospect says they already know about this",
+    "roi_sentence": "One sentence projection using a relevant benchmark, with stated assumption and range",
+    "severity_rank": 1
   }},
   "pillar_2": {{
-    "headline": "Short 6-10 word headline summarizing website health",
-    "findings": ["Finding with specific data", "Finding 2", "Finding 3"],
-    "recommendations": ["Top action 1", "Top action 2", "Top action 3"]
+    "traffic_light": "orange",
+    "headline": "One plain-language sentence summarizing the site performance situation",
+    "supporting_facts": [
+      "Prospect pain written as a business problem",
+      "Second prospect pain"
+    ],
+    "objection_handler": "One sentence for handling pushback",
+    "roi_sentence": "One sentence projection using a relevant benchmark, with stated assumption and range",
+    "severity_rank": 2
   }},
   "pillar_3": {{
-    "headline": "Short 6-10 word headline summarizing accessibility status",
-    "findings": ["Finding with specific data", "Finding 2", "Finding 3"],
-    "recommendations": ["Top action 1", "Top action 2", "Top action 3"]
+    "traffic_light": "red",
+    "headline": "One plain-language sentence summarizing the legal or compliance situation",
+    "supporting_facts": [
+      "Prospect pain written as a business problem",
+      "Second prospect pain"
+    ],
+    "objection_handler": "One sentence for handling pushback",
+    "roi_sentence": "One sentence projection using a relevant benchmark, with stated assumption and range",
+    "severity_rank": 3
   }},
   "pillar_4": {{
-    "headline": "Short 6-10 word headline summarizing online reputation",
-    "findings": ["Finding with specific data", "Finding 2", "Finding 3"],
-    "recommendations": ["Top action 1", "Top action 2", "Top action 3"]
+    "traffic_light": "green",
+    "headline": "One plain-language sentence summarizing the reputation situation",
+    "supporting_facts": [
+      "Prospect pain written as a business problem",
+      "Second prospect pain"
+    ],
+    "objection_handler": "One sentence for handling pushback",
+    "roi_sentence": "One sentence projection using a relevant benchmark, with stated assumption and range",
+    "severity_rank": 4
   }},
   "competitive_landscape": {{
-    "summary": "2-3 sentences positioning the client within the competitive set",
-    "client_advantages": ["Advantage 1", "Advantage 2"],
-    "client_gaps": ["Gap 1 vs specific competitor", "Gap 2"]
+    "summary": "2-3 sentences positioning the client versus named competitors in plain language",
+    "client_advantages": ["Advantage 1 in plain language", "Advantage 2"],
+    "client_gaps": ["Gap versus a specific named competitor", "Gap 2"]
   }},
   "top_recommendations": [
-    "Priority 1 cross-pillar action with expected impact",
-    "Priority 2 cross-pillar action",
-    "Priority 3 cross-pillar action",
-    "Priority 4 cross-pillar action",
-    "Priority 5 cross-pillar action"
+    "Business outcome 1 — what changes and why it matters commercially",
+    "Business outcome 2",
+    "Business outcome 3",
+    "Business outcome 4",
+    "Business outcome 5"
   ]
 }}"""
 

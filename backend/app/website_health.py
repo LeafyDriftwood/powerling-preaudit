@@ -545,21 +545,21 @@ def gather_pillar2_facts(
         ]:
             result[field] = tech[field]
 
-    # 5. Site crawl (DataForSEO OnPage API)
-    print(f"[p2]   Site crawl via DataForSEO (up to {max_crawl_pages} pages) ...")
+    # 5. Site crawl (SEO-Crawler — Playwright-based, replaces DataForSEO OnPage API)
+    print(f"[p2]   Site crawl via SEO-Crawler (up to {max_crawl_pages} pages) ...")
     try:
-        from .dataforseo_crawl import gather_site_crawl_facts_dataforseo as _gather_crawl
+        from .seocrawler_crawl import gather_site_crawl_facts_seocrawler as _gather_crawl
     except ImportError:
         try:
-            from dataforseo_crawl import gather_site_crawl_facts_dataforseo as _gather_crawl
+            from seocrawler_crawl import gather_site_crawl_facts_seocrawler as _gather_crawl
         except ImportError:
             _gather_crawl = None
 
     if _gather_crawl:
         crawl = _gather_crawl(url, max_pages=max_crawl_pages)
     else:
-        print("[p2]   dataforseo_crawl module not available, skipping crawl.")
-        crawl = {"crawl_ran": False, "crawl_error": "dataforseo_crawl module not available"}
+        print("[p2]   seocrawler_crawl module not available, skipping crawl.")
+        crawl = {"crawl_ran": False, "crawl_error": "seocrawler_crawl module not available"}
 
     result["crawl_ran"] = crawl.get("crawl_ran", False)
     result["crawl_error"] = crawl.get("crawl_error")

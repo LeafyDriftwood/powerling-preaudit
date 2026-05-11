@@ -14,8 +14,11 @@ interface AuditMeta {
 
 interface UiPillar {
   headline: string;
-  findings: string[];
-  recommendations: string[];
+  traffic_light?: string;
+  supporting_facts?: string[];
+  objection_handler?: string;
+  roi_sentence?: string;
+  severity_rank?: number;
 }
 
 interface UiContent {
@@ -186,13 +189,24 @@ function SectionHeader({ id, title, subtitle }: { id: string; title: string; sub
   );
 }
 
-function FindingsRecs({ findings, recommendations }: { findings: string[]; recommendations: string[] }) {
+function PillarInsights({ pillar }: { pillar: UiPillar | undefined }) {
+  const tlColor =
+    pillar?.traffic_light === "green" ? "bg-green-500" :
+    pillar?.traffic_light === "orange" ? "bg-orange-400" :
+    pillar?.traffic_light === "red" ? "bg-red-500" : "bg-gray-300";
+
   return (
-    <div className="flex flex-col gap-4 scroll-mt-20">
+    <div className="flex flex-col gap-4">
+      {pillar?.traffic_light && (
+        <div className="flex items-center gap-2">
+          <span className={`w-3 h-3 rounded-full flex-shrink-0 ${tlColor}`} />
+          <span className="text-xs font-medium text-gray-500 capitalize">{pillar.traffic_light}</span>
+        </div>
+      )}
       <div>
-        <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Key Findings</h4>
+        <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Key Insights</h4>
         <ul className="flex flex-col gap-2">
-          {findings.map((f, i) => (
+          {(pillar?.supporting_facts ?? []).map((f, i) => (
             <li key={i} className="flex gap-2 text-sm text-gray-700">
               <span className="text-orange-400 mt-0.5 flex-shrink-0">•</span>
               <span>{f}</span>
@@ -200,17 +214,18 @@ function FindingsRecs({ findings, recommendations }: { findings: string[]; recom
           ))}
         </ul>
       </div>
-      <div>
-        <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Recommendations</h4>
-        <ul className="flex flex-col gap-2">
-          {recommendations.map((r, i) => (
-            <li key={i} className="flex gap-2 text-sm text-gray-700">
-              <span className="text-blue-400 mt-0.5 flex-shrink-0 font-bold">{i + 1}.</span>
-              <span>{r}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
+      {pillar?.objection_handler && (
+        <div className="bg-blue-50 rounded-lg p-3">
+          <p className="text-xs font-semibold text-blue-600 uppercase tracking-wider mb-1">If they push back</p>
+          <p className="text-sm text-blue-800 italic">{pillar.objection_handler}</p>
+        </div>
+      )}
+      {pillar?.roi_sentence && (
+        <div className="bg-green-50 rounded-lg p-3">
+          <p className="text-xs font-semibold text-green-600 uppercase tracking-wider mb-1">Revenue projection</p>
+          <p className="text-sm text-green-800">{pillar.roi_sentence}</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -424,12 +439,9 @@ export default function ResultPage() {
               )}
             </Card>
 
-            {/* Right: findings + recs */}
+            {/* Right: insights */}
             <Card className="p-5">
-              <FindingsRecs
-                findings={ui_content?.pillar_1?.findings ?? []}
-                recommendations={ui_content?.pillar_1?.recommendations ?? []}
-              />
+              <PillarInsights pillar={ui_content?.pillar_1} />
             </Card>
           </div>
         </section>
@@ -487,10 +499,7 @@ export default function ResultPage() {
 
             {/* Right */}
             <Card className="p-5">
-              <FindingsRecs
-                findings={ui_content?.pillar_2?.findings ?? []}
-                recommendations={ui_content?.pillar_2?.recommendations ?? []}
-              />
+              <PillarInsights pillar={ui_content?.pillar_2} />
             </Card>
           </div>
         </section>
@@ -553,10 +562,7 @@ export default function ResultPage() {
 
             {/* Right */}
             <Card className="p-5">
-              <FindingsRecs
-                findings={ui_content?.pillar_3?.findings ?? []}
-                recommendations={ui_content?.pillar_3?.recommendations ?? []}
-              />
+              <PillarInsights pillar={ui_content?.pillar_3} />
             </Card>
           </div>
         </section>
@@ -634,10 +640,7 @@ export default function ResultPage() {
 
             {/* Right */}
             <Card className="p-5">
-              <FindingsRecs
-                findings={ui_content?.pillar_4?.findings ?? []}
-                recommendations={ui_content?.pillar_4?.recommendations ?? []}
-              />
+              <PillarInsights pillar={ui_content?.pillar_4} />
             </Card>
           </div>
         </section>
