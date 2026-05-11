@@ -153,7 +153,7 @@ function LcrDonut({ score, tier }: { score: number; tier: string }) {
   const r = 38;
   const circ = 2 * Math.PI * r;
   const dash = (score / 100) * circ;
-  const tierColor = tier === "Score 3/3" ? "#16a34a" : tier === "Score 2/3" ? "#ca8a04" : "#dc2626";
+  const tierColor = tier === "Full Coverage" ? "#16a34a" : tier === "Strong Coverage" ? "#65a30d" : tier === "Partial Coverage" ? "#ca8a04" : "#dc2626";
   return (
     <div className="flex flex-col items-center gap-1">
       <svg width="100" height="100" viewBox="0 0 100 100">

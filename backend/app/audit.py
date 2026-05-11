@@ -443,13 +443,15 @@ def compute_lcr(available_languages: list, required_languages: list) -> float:
 
 
 def compute_lcr_tier(lcr: float) -> str:
-    """Return Powerling LCR tier label (Score 1/3, 2/3, or 3/3)."""
-    if lcr < 50:
-        return "Score 1/3"
-    elif lcr <= 75:
-        return "Score 2/3"
+    """Return Powerling LCR tier label."""
+    if lcr >= 100:
+        return "Full Coverage"
+    elif lcr >= 76:
+        return "Strong Coverage"
+    elif lcr >= 51:
+        return "Partial Coverage"
     else:
-        return "Score 3/3"
+        return "Limited Coverage"
 
 
 # ---------------------------------------------------------------------------
