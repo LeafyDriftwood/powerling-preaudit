@@ -328,8 +328,6 @@ IMPORTANT: The JSON below shows field names and value types ONLY. Do NOT copy th
   "keyboard_navigation": "[your actual finding]",
   "third_party_forms": "[your actual finding or null]",
   "pdf_accessibility": "[your actual finding or null]",
-  "gdpr_indicators": false,
-  "ada_indicators": false,
   "primary_region": "[actual country]",
   "applicable_regulations": ["[applicable regulation based on region]"],
   "accessibility_lawsuits": []
@@ -405,8 +403,6 @@ IMPORTANT: The JSON below shows field names and value types ONLY. Do NOT copy th
   "global_reach": "[your actual finding]",
   "estimated_monthly_traffic": "[your actual finding or 'unknown']",
   "has_accessibility_statement": false,
-  "gdpr_indicators": false,
-  "ada_indicators": false,
   "wcag_level_claimed": "[your actual finding or 'undeclared']",
   "alt_text_coverage": "[your actual finding]",
   "keyboard_navigation": "[your actual finding]",
