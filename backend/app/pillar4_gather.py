@@ -358,27 +358,31 @@ For each platform record: correct URL, follower count, last active date.
 
 TASK B — Employer reviews.
 Search in the company's primary language and English:
-  - Glassdoor: rating (out of 5), number of reviews, % recommend to a friend, CEO approval %
-  - Indeed: rating, number of reviews
+  - Glassdoor: URL to the company's Glassdoor page, rating (out of 5), number of reviews, % recommend to a friend, CEO approval %
+  - Indeed: URL to the company's Indeed page, rating, number of reviews
+
+Before accepting any profile on either platform, verify it belongs to {company_name} ({domain})
+by checking that the profile's website field matches {domain} or the company's HQ location
+matches what you already know about this company. If multiple profiles exist with similar names,
+prefer the one whose website and location match. If you cannot verify a match, return null for
+that platform's fields — do not return data for the wrong company.
 
 TASK C — Customer reviews.
-  - Trustpilot: score, total reviews
-  - Google Reviews: score, approximate number of reviews
+  - Trustpilot: URL to the company's Trustpilot page, score, total reviews
 
 TASK D — Credibility assets.
 Search for certifications, regulatory approvals, ISO norms, CE marks, biocide
 authorizations, or industry awards. Include dates where available.
 
 TASK E — Trade fair presence.
-Search for appearances at industry events in the last 2 years. Include event name,
-location, and dates.
+Search for industry trade shows or conferences where {company_name} exhibited, sponsored, or presented in the last 12 months. Only include events you can verify with a specific source URL. Include event name, location, dates, and source URL.
 
 TASK F — Recent news.
 Search for press releases, media coverage, or notable announcements in the last
 18 months. Include source URL and date.
 
 TASK G — Controversies.
-Any known lawsuits, data breaches, or reputational issues?
+Any known lawsuits, data breaches, or reputational issues in the last 3 years? Return each as an object with date (YYYY-MM-DD), title, and url. If none found, return an empty array.
 
 TASK H — Overall sentiment.
 Summarize as positive / neutral / negative with a one-sentence justification.
@@ -391,7 +395,7 @@ data — add a "note" key to that object. Notes are optional and free-form; use 
 Notes must be plain text — no markdown links or citations.
 
 Numeric requirements: For all review count fields (glassdoor_reviews, indeed_reviews,
-trustpilot_reviews, google_reviews_count), return exact integers or null. Do not include
+trustpilot_reviews), return exact integers or null. Do not include
 commas, plus signs, "K"/"M" shorthand, or text like "around" or "approximately". If the
 exact count is unavailable, return null.
 
@@ -403,18 +407,19 @@ exact count is unavailable, return null.
     "facebook":  {{"url": "...", "followers": "...", "last_active": "..."}},
     "youtube":   {yt_json}
   }},
+  "glassdoor_url": null,
   "glassdoor_score": null,
   "glassdoor_reviews": null,
   "glassdoor_recommend": null,
   "glassdoor_ceo_approval": null,
   "glassdoor_note": null,
+  "indeed_url": null,
   "indeed_score": null,
   "indeed_reviews": null,
   "indeed_note": null,
+  "trustpilot_url": null,
   "trustpilot_score": null,
   "trustpilot_reviews": null,
-  "google_reviews_score": null,
-  "google_reviews_count": null,
   "credibility_assets": ["ISO 9001 certified", "CE mark Class IIa"],
   "trade_fair_presence": [
     {{"event": "MEDICA 2025", "location": "Düsseldorf, DE", "dates": "2025-11-17 to 2025-11-20"}}
@@ -422,7 +427,7 @@ exact count is unavailable, return null.
   "recent_news": [
     {{"date": "2025-06-01", "title": "...", "url": "..."}}
   ],
-  "controversies": [],
+  "controversies": [{{"date": "YYYY-MM-DD", "title": "...", "url": "..."}}],
   "overall_sentiment": "positive",
   "sentiment_justification": "..."
 }}
@@ -487,5 +492,8 @@ def gather_pillar4_facts(domain: str, company_name: str) -> dict:
 
     if result is None:
         return {}
+
+    if not isinstance(result.get("controversies"), list):
+        result["controversies"] = []
 
     return result

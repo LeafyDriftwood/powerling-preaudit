@@ -71,14 +71,16 @@ interface Facts {
   };
   pillar_4_online_reputation: {
     overall_sentiment?: string;
+    trustpilot_url?: string;
     trustpilot_score?: number;
     trustpilot_reviews?: number;
+    glassdoor_url?: string;
     glassdoor_score?: number;
     glassdoor_reviews?: number;
+    indeed_url?: string;
     indeed_score?: number;
     indeed_reviews?: number;
-    google_reviews_score?: number;
-    google_reviews_count?: number;
+
     social_media?: Record<string, { url?: string; followers?: string; subscribers?: string; last_active?: string }>;
     trade_fair_presence?: unknown[];
     credibility_assets?: string[];
@@ -104,14 +106,6 @@ interface ReportData {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-
-function sentimentColor(s?: string) {
-  if (!s) return "bg-gray-100 text-gray-600";
-  const l = s.toLowerCase();
-  if (l === "positive") return "bg-green-100 text-green-700";
-  if (l === "negative") return "bg-red-100 text-red-700";
-  return "bg-yellow-100 text-yellow-700";
-}
 
 function scoreColor(score?: number) {
   if (score === undefined || score === null) return "text-gray-400";
@@ -568,43 +562,39 @@ export default function ResultPage() {
 
             {/* Left */}
             <Card className="p-5 flex flex-col gap-5">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs text-gray-500 mb-1">Overall sentiment</p>
-                  <span className={`px-3 py-1 rounded-full text-sm font-semibold capitalize ${sentimentColor(p4.overall_sentiment)}`}>
-                    {p4.overall_sentiment ?? "N/A"}
-                  </span>
-                </div>
-              </div>
-
               <div className="flex flex-col gap-3">
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Review Ratings</p>
-                {p4.trustpilot_score != null && (
+                {(p4.trustpilot_score != null || p4.trustpilot_url) && (
                   <div className="flex items-center gap-3">
-                    <span className="w-24 text-xs text-gray-600">Trustpilot</span>
+                    {p4.trustpilot_url ? (
+                      <a href={p4.trustpilot_url} target="_blank" rel="noopener noreferrer" className="w-24 text-xs text-blue-600 hover:text-blue-800 underline underline-offset-2">Trustpilot</a>
+                    ) : (
+                      <span className="w-24 text-xs text-gray-600">Trustpilot</span>
+                    )}
                     <div className="flex-1"><StarRating score={p4.trustpilot_score} /></div>
-                    <span className="text-xs text-gray-400">{p4.trustpilot_reviews} reviews</span>
+                    <span className="text-xs text-gray-400">{p4.trustpilot_reviews != null ? `${p4.trustpilot_reviews} reviews` : ""}</span>
                   </div>
                 )}
-                {p4.google_reviews_score != null && (
+                {(p4.glassdoor_score != null || p4.glassdoor_url) && (
                   <div className="flex items-center gap-3">
-                    <span className="w-24 text-xs text-gray-600">Google</span>
-                    <div className="flex-1"><StarRating score={p4.google_reviews_score} /></div>
-                    <span className="text-xs text-gray-400">{p4.google_reviews_count} reviews</span>
-                  </div>
-                )}
-                {p4.glassdoor_score != null && (
-                  <div className="flex items-center gap-3">
-                    <span className="w-24 text-xs text-gray-600">Glassdoor</span>
+                    {p4.glassdoor_url ? (
+                      <a href={p4.glassdoor_url} target="_blank" rel="noopener noreferrer" className="w-24 text-xs text-blue-600 hover:text-blue-800 underline underline-offset-2">Glassdoor</a>
+                    ) : (
+                      <span className="w-24 text-xs text-gray-600">Glassdoor</span>
+                    )}
                     <div className="flex-1"><StarRating score={p4.glassdoor_score} /></div>
-                    <span className="text-xs text-gray-400">{p4.glassdoor_reviews} reviews</span>
+                    <span className="text-xs text-gray-400">{p4.glassdoor_reviews != null ? `${p4.glassdoor_reviews} reviews` : ""}</span>
                   </div>
                 )}
-                {p4.indeed_score != null && (
+                {(p4.indeed_score != null || p4.indeed_url) && (
                   <div className="flex items-center gap-3">
-                    <span className="w-24 text-xs text-gray-600">Indeed</span>
+                    {p4.indeed_url ? (
+                      <a href={p4.indeed_url} target="_blank" rel="noopener noreferrer" className="w-24 text-xs text-blue-600 hover:text-blue-800 underline underline-offset-2">Indeed</a>
+                    ) : (
+                      <span className="w-24 text-xs text-gray-600">Indeed</span>
+                    )}
                     <div className="flex-1"><StarRating score={p4.indeed_score} /></div>
-                    <span className="text-xs text-gray-400">{p4.indeed_reviews} reviews</span>
+                    <span className="text-xs text-gray-400">{p4.indeed_reviews != null ? `${p4.indeed_reviews} reviews` : ""}</span>
                   </div>
                 )}
               </div>
@@ -617,13 +607,19 @@ export default function ResultPage() {
                     {Object.entries(p4.social_media!).map(([platform, d]) => {
                       if (!d?.url) return null;
                       const rawCount = d.followers ?? d.subscribers;
-                      if (!rawCount || rawCount === "N/A") return null;
-                      const num = typeof rawCount === "string" ? parseInt(rawCount.replace(/,/g, ""), 10) : rawCount;
-                      const display = !isNaN(num) ? num.toLocaleString() : rawCount;
+                      const hasCount = rawCount && rawCount !== "N/A";
+                      const num = hasCount && typeof rawCount === "string" ? parseInt(rawCount.replace(/,/g, ""), 10) : rawCount;
+                      const display = hasCount && !isNaN(num as number) ? (num as number).toLocaleString() : rawCount;
                       return (
                         <div key={platform} className="flex items-center justify-between text-sm">
-                          <span className="capitalize text-gray-600">{platform}</span>
-                          <span className="font-semibold text-gray-800">{display}</span>
+                          <a href={d.url} target="_blank" rel="noopener noreferrer" className="capitalize text-gray-600 hover:text-orange-600 underline underline-offset-2">
+                            {platform}
+                          </a>
+                          {hasCount ? (
+                            <span className="font-semibold text-gray-800">{display}</span>
+                          ) : (
+                            <span className="text-xs text-gray-400">View page →</span>
+                          )}
                         </div>
                       );
                     })}

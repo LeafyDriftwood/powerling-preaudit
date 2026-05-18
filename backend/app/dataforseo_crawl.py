@@ -336,12 +336,12 @@ def gather_site_crawl_facts_dataforseo(
                 break
 
             for item in items:
-                if item.get("resource_type") != "html":
+                if not item or item.get("resource_type") != "html":
                     continue
 
-                meta = item.get("meta", {})
-                checks = item.get("checks", {})
-                content = meta.get("content", {})
+                meta = item.get("meta") or {}
+                checks = item.get("checks") or {}
+                content = meta.get("content") or {}
 
                 wc = content.get("plain_text_word_count")
                 if wc is not None:
@@ -359,7 +359,7 @@ def gather_site_crawl_facts_dataforseo(
                 if not checks.get("canonical", True):
                     missing_canonical += 1
 
-                h1s = meta.get("htags", {}).get("h1", [])
+                h1s = (meta.get("htags") or {}).get("h1") or []
                 if len(h1s) > 1:
                     multiple_h1 += 1
                 title_text = (meta.get("title") or "").strip().lower()

@@ -142,15 +142,18 @@ Search for where {company_name} operates, sells, or has customers. Look for:
 - Press releases, About pages, or annual reports mentioning global reach or country count
 
 STEP 2 - Search for any separate regional websites or market-specific domains beyond {url}.
+Only count distinct apex domains or country-code TLDs (e.g. company.co.uk, company.de) that serve a specific market independently. Do NOT include subdirectory locales (e.g. company.com/uk/).
 For each found, note: domain name, primary language served, target market.
 
 STEP 3 - Derive Required Languages (RL) from the geographic footprint found in Step 1:
-RL definition: identify the top 5-8 countries by traffic share using SimilarWeb or equivalent.
+RL definition: identify the top 5-8 countries by traffic share using any traffic tool (Semrush, Similarweb, etc.).
 Map each country to its dominant official or commercial language.
 RL = the distinct languages needed to serve those markets natively — no more, no fewer.
 required_languages must reflect the company's actual significant customer base,
 not what is already on the website and not an assumption about what a company "should" have.
-Derive it from the traffic data only.
+Prefer traffic data. If no traffic tool has data for this domain, fall back to the geographic
+footprint from Step 1 — use the company's key markets and regions to infer which languages
+are needed. Do not return an empty array.
 
 STEP 4 - Available Languages (AL) validation rule:
 AL counts ONLY languages where the FULL user experience is available:
@@ -163,7 +166,10 @@ STEP 5 - Note translation quality on the website:
 Any observations on machine vs. professional translation, inconsistencies, or untranslated sections.
 
 STEP 6 - Traffic data:
-Approximate monthly organic traffic volume (from public sources if findable), and top 3-5 traffic source countries.
+Search Semrush (semrush.com/website/[domain]/overview/) for monthly organic traffic and top traffic countries.
+If Semrush has data, return it as a clean string like "9.1M (Semrush, Mar 2026)".
+If Semrush has no data for this domain, set estimated_monthly_traffic to null and top_traffic_countries to [].
+Do not include URLs, markdown links, or citation text in the value.
 
 Return ONLY a valid JSON object with no markdown fences.
 Only return the fields below — do NOT include available_languages, language_selector_type,
@@ -176,7 +182,7 @@ IMPORTANT: The JSON below shows field names and value types ONLY. Do NOT copy th
   "mixed_language_ux_issues": "[brief plain-text summary, or 'None detected']",
   "translation_quality_notes": "[your actual finding]",
   "lcr_notes": "[your actual finding]",
-  "estimated_monthly_traffic": "[your actual finding or 'unknown']",
+  "estimated_monthly_traffic": null,
   "top_traffic_countries": ["XX", "XX", "XX"],
   "regional_sites": [{{"domain": "[domain]", "language": "XX", "market": "[market]", "note": "[note]"}}]
 }}
@@ -192,12 +198,14 @@ Search for where this company operates, sells, or has customers. Look for:
 - Press releases, About pages, or annual reports mentioning global reach or country count
 
 STEP 2 - Derive Required Languages (RL) from the geographic footprint found in Step 1:
-RL definition: identify the top 5-8 countries by traffic share using SimilarWeb or equivalent.
+RL definition: identify the top 5-8 countries by traffic share using any traffic tool (Semrush, Similarweb, etc.).
 Map each country to its dominant official or commercial language.
 RL = the distinct languages needed to serve those markets natively — no more, no fewer.
 required_languages must reflect the company's actual significant customer base,
 not what is already on the website and not an assumption about what a company "should" have.
-Derive it from the traffic data only.
+Prefer traffic data. If no traffic tool has data for this domain, fall back to the geographic
+footprint from Step 1 — use the company's key markets and regions to infer which languages
+are needed. Do not return an empty array.
 
 STEP 3 - Determine Available Languages (AL) from the website:
 AL counts ONLY languages where the FULL user experience is available:
@@ -215,10 +223,14 @@ STEP 5 - Note translation quality on the website:
 Any observations on machine vs. professional translation, inconsistencies, or untranslated sections.
 
 STEP 6 - Search for any separate regional websites or market-specific domains beyond {url}.
+Only count distinct apex domains or country-code TLDs (e.g. company.co.uk, company.de) that serve a specific market independently. Do NOT include subdirectory locales (e.g. company.com/uk/).
 For each found, note: domain name, primary language, target market.
 
 STEP 7 - Traffic data:
-Approximate monthly organic traffic if findable. Top 3-5 traffic source countries.
+Search Semrush (semrush.com/website/[domain]/overview/) for monthly organic traffic and top traffic countries.
+If Semrush has data, return it as a clean string like "9.1M (Semrush, Mar 2026)".
+If Semrush has no data for this domain, set estimated_monthly_traffic to null and top_traffic_countries to [].
+Do not include URLs, markdown links, or citation text in the value.
 
 Return ONLY a valid JSON object with no markdown fences.
 IMPORTANT: The JSON below shows field names and value types ONLY. Do NOT copy these example values — replace every value with your actual research findings above.
@@ -231,7 +243,7 @@ IMPORTANT: The JSON below shows field names and value types ONLY. Do NOT copy th
   "mixed_language_ux_issues": "[brief plain-text summary, or 'None detected']",
   "translation_quality_notes": "[your actual finding]",
   "lcr_notes": "[your actual finding]",
-  "estimated_monthly_traffic": "[your actual finding or 'unknown']",
+  "estimated_monthly_traffic": null,
   "top_traffic_countries": ["XX", "XX", "XX"],
   "regional_sites": []
 }}
@@ -301,16 +313,14 @@ Search the website and answer the following:
 3. Does the website have a privacy policy? (yes/no)
 4. Does the website have a terms of service / terms of use? (yes/no)
 5. Are there any obvious WCAG accessibility issues? List only issues you can specifically verify on the site.
-6. Is the website GDPR compliant based on visible indicators?
-7. Does the website have an ADA compliance statement or mention ADA?
-8. What country/region is the company primarily based in?
-9. Has the company faced any accessibility-related lawsuits or complaints? Search public records.
-10. Does the website have a publicly accessible sitemap?
-11. What WCAG accessibility level does the website claim or appear to target? (e.g., "WCAG 2.1 AA", "WCAG 2.0 A", "RGAA v4.1 partial", "undeclared"). Check the footer, accessibility statement, and legal notices.
-12. How is alt text coverage across the site? Use one of: consistent / partial / missing / unknown, and describe your actual finding with specific examples from the site.
-13. How is keyboard navigation? Is there a visible "skip to content" or "skip to main" link? Any keyboard traps in navigation menus or carousels?
-14. Does the website use any third-party forms or scripts that introduce trackers before consent is given? Name the specific tools found if any.
-15. Are there any PDFs or downloadable documents? If so, do they appear to be text-based (selectable text, screen-reader friendly) or image-based scans?
+6. What country/region is the company primarily based in?
+7. Has the company faced any accessibility-related lawsuits or complaints? Search public records.
+8. Does the website have a publicly accessible sitemap?
+9. What WCAG accessibility level does the website claim or appear to target? (e.g., "WCAG 2.1 AA", "WCAG 2.0 A", "RGAA v4.1 partial", "undeclared"). Check the footer, accessibility statement, and legal notices.
+10. How is alt text coverage across the site? Use one of: consistent / partial / missing / unknown, and describe your actual finding with specific examples from the site.
+11. How is keyboard navigation? Is there a visible "skip to content" or "skip to main" link? Any keyboard traps in navigation menus or carousels?
+12. Does the website use any third-party forms or scripts that introduce trackers before consent is given? Name the specific tools found if any.
+13. Are there any PDFs or downloadable documents? If so, do they appear to be text-based (selectable text, screen-reader friendly) or image-based scans?
 
 Return ONLY a valid JSON object with no markdown fences.
 IMPORTANT: The JSON below shows field names and value types ONLY. Do NOT copy these example values — replace every value with your actual research findings above.
@@ -375,23 +385,21 @@ GLOBALIZATION:
 1. What languages are available on the website? Only count full UX languages (not partial translations).{' (ALREADY CONFIRMED ABOVE - use those values)' if crawler_available_languages is not None else ''}
 2. Search for the company's geographic presence (countries, regions, key markets). Based on that footprint, estimate how many languages would justify a full translated UX — counting only languages where there is a substantial customer segment, not every language in every country of operation. Return this as required_languages_count (integer).
 3. Brief description of global reach (number of countries, key regions).
-4. Estimated monthly traffic if findable.
+4. Search Semrush (semrush.com/website/[domain]/overview/) for monthly organic traffic. Return a clean string like "9.1M (Semrush, Mar 2026)". If Semrush has no data for this domain, return null.
 
 ACCESSIBILITY & COMPLIANCE:
 5. Accessibility statement: yes/no
-6. GDPR-compliant cookie consent: yes/no
-7. ADA compliance statement: yes/no
-8. Any notable accessibility issues publicly reported.
-9. What WCAG level does the site claim or appear to target? (e.g., "WCAG 2.1 AA", "undeclared")
-10. Alt text coverage quality: consistent / partial / missing / unknown
-11. Keyboard navigation quality: brief description, or "unknown"
+6. Any notable accessibility issues publicly reported.
+7. What WCAG level does the site claim or appear to target? (e.g., "WCAG 2.1 AA", "undeclared")
+8. Alt text coverage quality: consistent / partial / missing / unknown
+9. Keyboard navigation quality: brief description, or "unknown"
 
 ONLINE REPUTATION:
 12. Brief factual description of their brand positioning based on what you find online.
 13. Digital engagement level: High / Medium / Low (based on social following + review volume).
 14. LinkedIn follower count - search directly for their LinkedIn company page by name.
 15. Total social media reach estimate across all platforms.
-16. Review score (Trustpilot or Google) if available.
+16. Review score (Trustpilot or Google) if available. Return as a numeric float (e.g. 4.3) or null.
 17. Overall online sentiment (positive / neutral / negative).
 
 Return ONLY a valid JSON object with no markdown fences.
@@ -401,7 +409,7 @@ IMPORTANT: The JSON below shows field names and value types ONLY. Do NOT copy th
   "available_languages": ["XX", "XX"],
   "required_languages_count": 0,
   "global_reach": "[your actual finding]",
-  "estimated_monthly_traffic": "[your actual finding or 'unknown']",
+  "estimated_monthly_traffic": null,
   "has_accessibility_statement": false,
   "wcag_level_claimed": "[your actual finding or 'undeclared']",
   "alt_text_coverage": "[your actual finding]",
@@ -578,7 +586,6 @@ PILLAR 4 - ONLINE REPUTATION:
 - Overall sentiment: {p4.get('overall_sentiment', 'N/A')} - {p4.get('sentiment_justification', '')}
 - Social media: {social_summary}
 - Trustpilot: {p4.get('trustpilot_score', 'N/A')} ({p4.get('trustpilot_reviews', 'N/A')} reviews)
-- Google Reviews: {p4.get('google_reviews_score', 'N/A')} ({p4.get('google_reviews_count', 'N/A')} reviews)
 - Glassdoor: {p4.get('glassdoor_score', 'N/A')} ({p4.get('glassdoor_reviews', 'N/A')} reviews)
 - Indeed: {p4.get('indeed_score', 'N/A')} ({p4.get('indeed_reviews', 'N/A')} reviews)
 - Trade fair presence: {p4.get('trade_fair_presence', [])}
@@ -681,7 +688,12 @@ def run_audit(url: str, company_name: str, competitors: list) -> dict:
                 print(f"[audit]   Crawler OK: {client_crawler.get('available_languages')} | "
                       f"hreflang: {client_crawler.get('hreflang_present')} | "
                       f"x-default: {client_crawler.get('hreflang_x_default_present')}")
-                if gather_mixed_language_issues:
+                # Sanity check: if only 1 locale detected, the crawler likely hit a
+                # JS-rendering race or was blocked — treat as soft failure so GPT fills in.
+                if len(client_crawler.get("available_languages", [])) <= 1:
+                    print("[audit]   Crawler returned <=1 locale — treating as soft failure, falling back to GPT.")
+                    client_crawler = None
+                if client_crawler and gather_mixed_language_issues:
                     print("[audit]   Running GPT-5 mixed language check...")
                     ml_issues = gather_mixed_language_issues(
                         url, client_crawler.get("locale_urls", {})
@@ -713,7 +725,7 @@ def run_audit(url: str, company_name: str, competitors: list) -> dict:
             from pillar4_gather import gather_pillar4_facts as _gather_p4
         pillar4_data = _gather_p4(url, company_name)
         # Coerce review count fields from strings to ints (safety net for "50,000+" etc.)
-        for _field in ("google_reviews_count", "trustpilot_reviews", "glassdoor_reviews", "indeed_reviews"):
+        for _field in ("trustpilot_reviews", "glassdoor_reviews", "indeed_reviews"):
             _val = pillar4_data.get(_field)
             if isinstance(_val, str):
                 _cleaned = re.sub(r"[^\d]", "", _val)

@@ -369,7 +369,9 @@ def gather_pillar1_facts(url: str) -> dict:
             try:
                 page.wait_for_selector('link[rel="alternate"][hreflang]', timeout=5000)
             except Exception:
-                pass  # Site has no hreflang tags, or they didn't load in time — continue
+                # Site has no hreflang tags, or they didn't load in time.
+                # Give JS-rendered locales a bit more time before locale detection.
+                page.wait_for_timeout(3000)
 
             raw_hreflang = page.evaluate("""() => {
                 return Array.from(
@@ -442,6 +444,39 @@ def gather_pillar1_facts(url: str) -> dict:
 # Public function 2 — GPT-5 mixed language detection
 # ---------------------------------------------------------------------------
 
+def _flatten_mixed_language_issues(issues: list) -> list:
+    """
+    Rescue locale issue objects that GPT nested inside language_hits instead of
+    placing at the top level. Detection rule: any language_hits item that contains
+    a 'locale' key is a misplaced locale issue, not a real language hit.
+    """
+    result = []
+    for issue in issues:
+        real_hits = []
+        rescued = []
+        for hit in issue.get('language_hits', []):
+            if 'locale' in hit:
+                # Merged case: hit has both language/marker_strings AND locale properties
+                if hit.get('language') and hit.get('marker_strings_found'):
+                    real_hits.append({
+                        'language': hit['language'],
+                        'marker_strings_found': hit['marker_strings_found'],
+                    })
+                rescued.append({
+                    'locale': hit['locale'],
+                    'page_url': hit.get('page_url', ''),
+                    'language_hits': [
+                        h for h in hit.get('language_hits', [])
+                        if h.get('language') and h.get('marker_strings_found')
+                    ],
+                })
+            elif hit.get('language') and hit.get('marker_strings_found'):
+                real_hits.append(hit)
+        result.append({**issue, 'language_hits': real_hits})
+        result.extend(rescued)
+    return result
+
+
 def gather_mixed_language_issues(domain: str, locale_urls: dict) -> list:
     """
     Use GPT-5 with web search to find mixed-language UX issues on the site.
@@ -485,8 +520,10 @@ Only report genuine cross-language contamination. Ignore:
 - Technical strings (URLs, email addresses, code)
 - Content intentionally in another language (e.g. a quote or language-learning site)
 
-Return JSON only — no markdown fences.
-Return an empty array if no issues are found.
+Return a flat JSON array — one object per locale at the top level.
+Never nest locale objects inside language_hits.
+language_hits must only contain objects with "language" and "marker_strings_found" keys — nothing else.
+Return an empty array if no issues are found. No markdown fences.
 
 [
   {{
@@ -495,7 +532,21 @@ Return an empty array if no issues are found.
     "language_hits": [
       {{
         "language": "FR",
-        "marker_strings_found": ["En savoir plus", "Voir plus"]
+        "marker_strings_found": ["actual string found on page", "another string found"]
+      }}
+    ]
+  }},
+  {{
+    "locale": "DE",
+    "page_url": "https://example.com/de/",
+    "language_hits": [
+      {{
+        "language": "EN",
+        "marker_strings_found": ["actual english string found on german page"]
+      }},
+      {{
+        "language": "FR",
+        "marker_strings_found": ["actual french string found on german page"]
       }}
     ]
   }}
@@ -536,17 +587,16 @@ Return an empty array if no issues are found.
                     return []
         if not isinstance(result, list):
             return []
-        # Basic schema validation — drop malformed items
-        valid = []
-        for item in result:
+        result = _flatten_mixed_language_issues(result)
+        return [
+            item for item in result
             if (
                 isinstance(item, dict)
                 and isinstance(item.get("locale"), str)
                 and isinstance(item.get("page_url"), str)
                 and isinstance(item.get("language_hits"), list)
-            ):
-                valid.append(item)
-        return valid
+            )
+        ]
     except Exception as e:
         print(f"  [warn] gather_mixed_language_issues failed: {e}")
         return []
