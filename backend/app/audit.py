@@ -29,6 +29,7 @@ API strategy:
 import json
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor
 from openai import OpenAI
 
 client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
@@ -665,147 +666,187 @@ Return ONLY a valid JSON object with no markdown fences:
 
 def run_audit(url: str, company_name: str, competitors: list) -> dict:
     """
-    Run the full audit pipeline sequentially.
+    Run the full audit pipeline with non-GPT work parallelized.
+    Pillar 2 (DataForSEO + PSI) and competitor Playwright crawls run in background
+    threads while the main thread executes the sequential GPT calls.
     company_name and competitors are supplied by the user.
     Returns a structured dict with all generated content.
     """
     print(f"[audit] Starting audit for {url} ({company_name})")
 
-    # Phase 0: Playwright crawler - client site
+    # --- All imports up front, before pool starts ---
+    gather_pillar1_facts = None
+    gather_mixed_language_issues = None
     try:
         from app.pillar1_gather import gather_pillar1_facts, gather_mixed_language_issues
     except ImportError as _import_err:
         print(f"[audit] WARNING: Could not import pillar1_gather: {_import_err}")
-        gather_pillar1_facts = None
-        gather_mixed_language_issues = None
 
-    print("[audit] Phase 0: Running Playwright crawler for client site...")
-    client_crawler = None
-    try:
-        if gather_pillar1_facts:
-            client_crawler = gather_pillar1_facts(url)
-            if client_crawler.get("crawler_ran"):
-                print(f"[audit]   Crawler OK: {client_crawler.get('available_languages')} | "
-                      f"hreflang: {client_crawler.get('hreflang_present')} | "
-                      f"x-default: {client_crawler.get('hreflang_x_default_present')}")
-                # Sanity check: if only 1 locale detected, the crawler likely hit a
-                # JS-rendering race or was blocked — treat as soft failure so GPT fills in.
-                if len(client_crawler.get("available_languages", [])) <= 1:
-                    print("[audit]   Crawler returned <=1 locale — treating as soft failure, falling back to GPT.")
-                    client_crawler = None
-                if client_crawler and gather_mixed_language_issues:
-                    print("[audit]   Running GPT-5 mixed language check...")
-                    ml_issues = gather_mixed_language_issues(
-                        url, client_crawler.get("locale_urls", {})
-                    )
-                    client_crawler["mixed_language_issues"] = ml_issues
-                    print(f"[audit]   Mixed language issues found: {len(ml_issues)}")
-            else:
-                print(f"[audit]   Crawler did not run: {client_crawler.get('crawler_error')}")
-                client_crawler = None
-        else:
-            print("[audit]   Crawler not available, skipping.")
-    except Exception as e:
-        print(f"[audit]   Crawler exception: {e}")
-        client_crawler = None
-
-    # Phase 1: Gather client data (Turns 1+2: globalization + accessibility)
-    print("[audit] Phase 1: Gathering client data (Turns 1+2)...")
-    pillar1_data, pillar3_data = gather_all_client_data(
-        url, company_name, crawler_facts=client_crawler
-    )
-
-    # Phase 1b: Gather Pillar 4 (online reputation) via pillar4_gather pipeline
-    print("[audit] Phase 1b: Gathering Pillar 4 (online reputation)...")
-    pillar4_data = {}
-    try:
-        try:
-            from app.pillar4_gather import gather_pillar4_facts as _gather_p4
-        except ImportError:
-            from pillar4_gather import gather_pillar4_facts as _gather_p4
-        pillar4_data = _gather_p4(url, company_name)
-        # Coerce review count fields from strings to ints (safety net for "50,000+" etc.)
-        for _field in ("trustpilot_reviews", "glassdoor_reviews", "indeed_reviews"):
-            _val = pillar4_data.get(_field)
-            if isinstance(_val, str):
-                _cleaned = re.sub(r"[^\d]", "", _val)
-                pillar4_data[_field] = int(_cleaned) if _cleaned else None
-        print(f"[audit]   Pillar 4 complete. Sentiment: {pillar4_data.get('overall_sentiment', 'N/A')}")
-    except Exception as e:
-        print(f"[audit]   Pillar 4 gathering failed: {e}")
-        pillar4_data = {}
-
-    # Merge crawler-only fields into pillar1_data (these never come from GPT)
-    if client_crawler and client_crawler.get("crawler_ran"):
-        pillar1_data["locale_urls"] = client_crawler.get("locale_urls", {})
-        pillar1_data["hreflang_tags"] = client_crawler.get("hreflang_tags", [])
-        pillar1_data["hreflang_x_default_present"] = client_crawler.get("hreflang_x_default_present", False)
-        pillar1_data["hreflang_x_default_url"] = client_crawler.get("hreflang_x_default_url")
-        pillar1_data["mixed_language_issues"] = client_crawler.get("mixed_language_issues", [])
-        pillar1_data["pages_checked"] = client_crawler.get("pages_checked", 0)
-        pillar1_data["target_languages"] = client_crawler.get("target_languages", [])
-        pillar1_data["available_language_variants"] = client_crawler.get(
-            "available_language_variants", client_crawler.get("available_languages", [])
-        )
-        # Override authoritative fields in case GPT deviated from injected values
-        pillar1_data["available_languages"] = client_crawler.get(
-            "available_languages", pillar1_data.get("available_languages", [])
-        )
-        pillar1_data["hreflang_present"] = client_crawler.get(
-            "hreflang_present", pillar1_data.get("hreflang_present", False)
-        )
-        pillar1_data["language_selector_type"] = client_crawler.get(
-            "language_selector_type", pillar1_data.get("language_selector_type", "unknown")
-        )
-
-    # Phase 0b: Gather Pillar 2 (DataForSEO crawl + PSI + homepage checks)
-    # Runs after the Playwright crawler so locale_urls are available.
-    print("[audit] Phase 0b: Gathering Pillar 2 website health data...")
-    pillar2_data = None
+    _gather_p2 = None
     try:
         try:
             from app.website_health import gather_pillar2_facts as _gather_p2
         except ImportError:
             from website_health import gather_pillar2_facts as _gather_p2
-        pillar2_data = _gather_p2(url, max_crawl_pages=200)
-        print(f"[audit]   Pillar 2 complete. "
-              f"PSI ran: {pillar2_data.get('psi_ran')}, "
-              f"Crawl ran: {pillar2_data.get('crawl_ran')}, "
-              f"Health score: {pillar2_data.get('site_health_score')}")
     except Exception as e:
-        print(f"[audit]   Pillar 2 gathering failed: {e}")
-        pillar2_data = None
+        print(f"[audit] WARNING: Could not import website_health: {e}")
 
-    # Override GPT's has_sitemap guess with authoritative value from website_health HTTP check
-    if pillar2_data and pillar2_data.get("has_sitemap_xml") is not None:
-        pillar3_data["has_sitemap"] = pillar2_data["has_sitemap_xml"]
-
-    # Phase 2: Crawl + gather competitor benchmark data (one crawler + one search call each)
-    competitor_facts = []
-    for i, comp_url in enumerate(competitors):
-        print(f"[audit] Phase 2: Crawling competitor {i+1} ({comp_url})...")
+    _gather_p4 = None
+    try:
         try:
-            comp_crawler = gather_pillar1_facts(comp_url) if gather_pillar1_facts else None
-            comp_langs = comp_crawler.get("available_languages") if (comp_crawler and comp_crawler.get("crawler_ran")) else None
-            if comp_langs is not None:
-                print(f"[audit]   Competitor {i+1} crawler OK: {comp_langs}")
+            from app.pillar4_gather import gather_pillar4_facts as _gather_p4
+        except ImportError:
+            from pillar4_gather import gather_pillar4_facts as _gather_p4
+    except Exception as e:
+        print(f"[audit] WARNING: Could not import pillar4_gather: {e}")
+
+    # --- Nested competitor crawl helper (Playwright only, no GPT) ---
+    def _run_competitor_crawl(comp_url: str):
+        if not gather_pillar1_facts:
+            return None, "crawler not available"
+        try:
+            result = gather_pillar1_facts(comp_url)
+            if result.get("crawler_ran"):
+                langs = result.get("available_languages")
+                print(f"[audit]   Comp crawler OK ({comp_url}): {langs}")
+                return langs, None
             else:
-                err = comp_crawler.get("crawler_error") if comp_crawler else "crawler not available"
-                print(f"[audit]   Competitor {i+1} crawler failed: {err}")
+                err = result.get("crawler_error", "unknown")
+                print(f"[audit]   Comp crawler failed ({comp_url}): {err}")
+                return None, err
         except Exception as e:
-            print(f"[audit]   Competitor {i+1} crawler exception: {e}")
-            comp_langs = None
+            print(f"[audit]   Comp crawler exception ({comp_url}): {e}")
+            return None, str(e)
 
-        print(f"[audit]   Gathering competitor {i+1} data via search ({comp_url})...")
+    # --- Launch background threads ---
+    # max_workers=3: 1 for Pillar 2 (DataForSEO + PSI), 2 for competitor crawls.
+    # The 3rd competitor crawl is queued and starts as soon as a crawl slot frees up.
+    # GPT calls are NOT submitted to the pool — they stay sequential on the main thread.
+    pool = ThreadPoolExecutor(max_workers=3)
+    fut_pillar2 = pool.submit(_gather_p2, url, max_crawl_pages=200) if _gather_p2 else None
+    fut_comp_crawls = [pool.submit(_run_competitor_crawl, c) for c in competitors]
+
+    try:
+        # Phase 0: Playwright crawler - client site (main thread, critical path)
+        print("[audit] Phase 0: Running Playwright crawler for client site...")
+        client_crawler = None
         try:
-            comp_data = gather_competitor_benchmark_data(comp_url, crawler_available_languages=comp_langs)
-            # Ensure crawler's available_languages takes precedence
-            if comp_langs is not None:
-                comp_data["available_languages"] = comp_langs
+            if gather_pillar1_facts:
+                client_crawler = gather_pillar1_facts(url)
+                if client_crawler.get("crawler_ran"):
+                    print(f"[audit]   Crawler OK: {client_crawler.get('available_languages')} | "
+                          f"hreflang: {client_crawler.get('hreflang_present')} | "
+                          f"x-default: {client_crawler.get('hreflang_x_default_present')}")
+                    # Sanity check: if only 1 locale detected, the crawler likely hit a
+                    # JS-rendering race or was blocked — treat as soft failure so GPT fills in.
+                    if len(client_crawler.get("available_languages", [])) <= 1:
+                        print("[audit]   Crawler returned <=1 locale — treating as soft failure, falling back to GPT.")
+                        client_crawler = None
+                    if client_crawler and gather_mixed_language_issues:
+                        print("[audit]   Running GPT-5 mixed language check...")
+                        ml_issues = gather_mixed_language_issues(
+                            url, client_crawler.get("locale_urls", {})
+                        )
+                        client_crawler["mixed_language_issues"] = ml_issues
+                        print(f"[audit]   Mixed language issues found: {len(ml_issues)}")
+                else:
+                    print(f"[audit]   Crawler did not run: {client_crawler.get('crawler_error')}")
+                    client_crawler = None
+            else:
+                print("[audit]   Crawler not available, skipping.")
         except Exception as e:
-            print(f"[audit]   Competitor {i+1} data gathering failed: {e}")
-            comp_data = {"company_name": comp_url, "available_languages": comp_langs or [], "required_languages": []}
-        competitor_facts.append(comp_data)
+            print(f"[audit]   Crawler exception: {e}")
+            client_crawler = None
+
+        # Phase 1: Gather client data (Turns 1+2: globalization + accessibility)
+        print("[audit] Phase 1: Gathering client data (Turns 1+2)...")
+        pillar1_data, pillar3_data = gather_all_client_data(
+            url, company_name, crawler_facts=client_crawler
+        )
+
+        # Collect competitor crawl results (threads done by now; 3rd may have just finished)
+        print("[audit] Collecting competitor crawl results...")
+        comp_langs_list = []
+        for i, fut in enumerate(fut_comp_crawls):
+            try:
+                langs, _ = fut.result()
+            except Exception as e:
+                print(f"[audit]   Comp {i+1} crawl future failed: {e}")
+                langs = None
+            comp_langs_list.append(langs)
+
+        # Phase 1b: Gather Pillar 4 (online reputation) via pillar4_gather pipeline
+        print("[audit] Phase 1b: Gathering Pillar 4 (online reputation)...")
+        pillar4_data = {}
+        try:
+            if _gather_p4:
+                pillar4_data = _gather_p4(url, company_name)
+                # Coerce review count fields from strings to ints (safety net for "50,000+" etc.)
+                for _field in ("trustpilot_reviews", "glassdoor_reviews", "indeed_reviews"):
+                    _val = pillar4_data.get(_field)
+                    if isinstance(_val, str):
+                        _cleaned = re.sub(r"[^\d]", "", _val)
+                        pillar4_data[_field] = int(_cleaned) if _cleaned else None
+                print(f"[audit]   Pillar 4 complete. Sentiment: {pillar4_data.get('overall_sentiment', 'N/A')}")
+        except Exception as e:
+            print(f"[audit]   Pillar 4 gathering failed: {e}")
+            pillar4_data = {}
+
+        # Merge crawler-only fields into pillar1_data (these never come from GPT)
+        if client_crawler and client_crawler.get("crawler_ran"):
+            pillar1_data["locale_urls"] = client_crawler.get("locale_urls", {})
+            pillar1_data["hreflang_tags"] = client_crawler.get("hreflang_tags", [])
+            pillar1_data["hreflang_x_default_present"] = client_crawler.get("hreflang_x_default_present", False)
+            pillar1_data["hreflang_x_default_url"] = client_crawler.get("hreflang_x_default_url")
+            pillar1_data["mixed_language_issues"] = client_crawler.get("mixed_language_issues", [])
+            pillar1_data["pages_checked"] = client_crawler.get("pages_checked", 0)
+            pillar1_data["target_languages"] = client_crawler.get("target_languages", [])
+            pillar1_data["available_language_variants"] = client_crawler.get(
+                "available_language_variants", client_crawler.get("available_languages", [])
+            )
+            # Override authoritative fields in case GPT deviated from injected values
+            pillar1_data["available_languages"] = client_crawler.get(
+                "available_languages", pillar1_data.get("available_languages", [])
+            )
+            pillar1_data["hreflang_present"] = client_crawler.get(
+                "hreflang_present", pillar1_data.get("hreflang_present", False)
+            )
+            pillar1_data["language_selector_type"] = client_crawler.get(
+                "language_selector_type", pillar1_data.get("language_selector_type", "unknown")
+            )
+
+        # Phase 2: Competitor GPT calls (main thread, sequential; crawl results from threads)
+        competitor_facts = []
+        for i, (comp_url, comp_langs) in enumerate(zip(competitors, comp_langs_list)):
+            print(f"[audit] Phase 2: Gathering competitor {i+1} data via search ({comp_url})...")
+            try:
+                comp_data = gather_competitor_benchmark_data(comp_url, crawler_available_languages=comp_langs)
+                # Ensure crawler's available_languages takes precedence
+                if comp_langs is not None:
+                    comp_data["available_languages"] = comp_langs
+            except Exception as e:
+                print(f"[audit]   Competitor {i+1} data gathering failed: {e}")
+                comp_data = {"company_name": comp_url, "available_languages": comp_langs or [], "required_languages": []}
+            competitor_facts.append(comp_data)
+
+        # Collect Pillar 2 result (DataForSEO done well before this point for most sites)
+        pillar2_data = None
+        if fut_pillar2:
+            try:
+                pillar2_data = fut_pillar2.result()
+                print(f"[audit]   Pillar 2 complete. "
+                      f"PSI ran: {pillar2_data.get('psi_ran')}, "
+                      f"Crawl ran: {pillar2_data.get('crawl_ran')}, "
+                      f"Health score: {pillar2_data.get('site_health_score')}")
+            except Exception as e:
+                print(f"[audit]   Pillar 2 gathering failed: {e}")
+
+        # Override GPT's has_sitemap guess with authoritative value from website_health HTTP check
+        if pillar2_data and pillar2_data.get("has_sitemap_xml") is not None:
+            pillar3_data["has_sitemap"] = pillar2_data["has_sitemap_xml"]
+
+    finally:
+        pool.shutdown(wait=False)
 
     print("[audit] Building facts pack...")
     facts = build_facts_pack(
