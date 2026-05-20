@@ -666,9 +666,10 @@ Return ONLY a valid JSON object with no markdown fences:
 
 def run_audit(url: str, company_name: str, competitors: list) -> dict:
     """
-    Run the full audit pipeline with non-GPT work parallelized.
-    Pillar 2 (DataForSEO + PSI) and competitor Playwright crawls run in background
-    threads while the main thread executes the sequential GPT calls.
+    Run the full audit pipeline with I/O and competitor work parallelized.
+    Pillar 2 (DataForSEO + PSI) and each competitor's full chain (Playwright crawl
+    + GPT call) run on background threads. The main thread runs Turn 1, Turn 2,
+    Pillar 4, and UI content GPT calls sequentially.
     company_name and competitors are supplied by the user.
     Returns a structured dict with all generated content.
     """
@@ -700,31 +701,36 @@ def run_audit(url: str, company_name: str, competitors: list) -> dict:
     except Exception as e:
         print(f"[audit] WARNING: Could not import pillar4_gather: {e}")
 
-    # --- Nested competitor crawl helper (Playwright only, no GPT) ---
-    def _run_competitor_crawl(comp_url: str):
-        if not gather_pillar1_facts:
-            return None, "crawler not available"
+    # --- Nested competitor full-chain helper (Playwright crawl + GPT on same thread) ---
+    def _run_competitor_full(comp_url: str) -> dict:
+        comp_langs = None
+        if gather_pillar1_facts:
+            try:
+                result = gather_pillar1_facts(comp_url)
+                if result.get("crawler_ran"):
+                    comp_langs = result.get("available_languages")
+                    print(f"[audit]   Comp crawler OK ({comp_url}): {comp_langs}")
+                else:
+                    print(f"[audit]   Comp crawler failed ({comp_url}): {result.get('crawler_error', 'unknown')}")
+            except Exception as e:
+                print(f"[audit]   Comp crawler exception ({comp_url}): {e}")
         try:
-            result = gather_pillar1_facts(comp_url)
-            if result.get("crawler_ran"):
-                langs = result.get("available_languages")
-                print(f"[audit]   Comp crawler OK ({comp_url}): {langs}")
-                return langs, None
-            else:
-                err = result.get("crawler_error", "unknown")
-                print(f"[audit]   Comp crawler failed ({comp_url}): {err}")
-                return None, err
+            comp_data = gather_competitor_benchmark_data(comp_url, crawler_available_languages=comp_langs)
+            if comp_langs is not None:
+                comp_data["available_languages"] = comp_langs
+            return comp_data
         except Exception as e:
-            print(f"[audit]   Comp crawler exception ({comp_url}): {e}")
-            return None, str(e)
+            print(f"[audit]   Comp GPT failed ({comp_url}): {e}")
+            return {"company_name": comp_url, "available_languages": comp_langs or [], "required_languages": []}
 
     # --- Launch background threads ---
-    # max_workers=3: 1 for Pillar 2 (DataForSEO + PSI), 2 for competitor crawls.
-    # The 3rd competitor crawl is queued and starts as soon as a crawl slot frees up.
-    # GPT calls are NOT submitted to the pool — they stay sequential on the main thread.
-    pool = ThreadPoolExecutor(max_workers=3)
+    # max_workers=4: 1 for Pillar 2 (DataForSEO + PSI), 3 for competitor full chains
+    # (crawl + GPT on same thread). All 4 start at T=0 and run concurrently.
+    # GPT calls inside _run_competitor_full run on background threads; the main thread
+    # GPT calls (Turn 1, Turn 2, Pillar 4, UI content) remain sequential.
+    pool = ThreadPoolExecutor(max_workers=4)
     fut_pillar2 = pool.submit(_gather_p2, url, max_crawl_pages=200) if _gather_p2 else None
-    fut_comp_crawls = [pool.submit(_run_competitor_crawl, c) for c in competitors]
+    fut_comp_fulls = [pool.submit(_run_competitor_full, c) for c in competitors]
 
     try:
         # Phase 0: Playwright crawler - client site (main thread, critical path)
@@ -763,17 +769,6 @@ def run_audit(url: str, company_name: str, competitors: list) -> dict:
         pillar1_data, pillar3_data = gather_all_client_data(
             url, company_name, crawler_facts=client_crawler
         )
-
-        # Collect competitor crawl results (threads done by now; 3rd may have just finished)
-        print("[audit] Collecting competitor crawl results...")
-        comp_langs_list = []
-        for i, fut in enumerate(fut_comp_crawls):
-            try:
-                langs, _ = fut.result()
-            except Exception as e:
-                print(f"[audit]   Comp {i+1} crawl future failed: {e}")
-                langs = None
-            comp_langs_list.append(langs)
 
         # Phase 1b: Gather Pillar 4 (online reputation) via pillar4_gather pipeline
         print("[audit] Phase 1b: Gathering Pillar 4 (online reputation)...")
@@ -815,18 +810,15 @@ def run_audit(url: str, company_name: str, competitors: list) -> dict:
                 "language_selector_type", pillar1_data.get("language_selector_type", "unknown")
             )
 
-        # Phase 2: Competitor GPT calls (main thread, sequential; crawl results from threads)
+        # Collect competitor full-chain results (crawl+GPT ran on background threads)
+        print("[audit] Collecting competitor results...")
         competitor_facts = []
-        for i, (comp_url, comp_langs) in enumerate(zip(competitors, comp_langs_list)):
-            print(f"[audit] Phase 2: Gathering competitor {i+1} data via search ({comp_url})...")
+        for i, fut in enumerate(fut_comp_fulls):
             try:
-                comp_data = gather_competitor_benchmark_data(comp_url, crawler_available_languages=comp_langs)
-                # Ensure crawler's available_languages takes precedence
-                if comp_langs is not None:
-                    comp_data["available_languages"] = comp_langs
+                comp_data = fut.result()
             except Exception as e:
-                print(f"[audit]   Competitor {i+1} data gathering failed: {e}")
-                comp_data = {"company_name": comp_url, "available_languages": comp_langs or [], "required_languages": []}
+                print(f"[audit]   Comp {i+1} future failed: {e}")
+                comp_data = {"company_name": competitors[i], "available_languages": [], "required_languages": []}
             competitor_facts.append(comp_data)
 
         # Collect Pillar 2 result (DataForSEO done well before this point for most sites)
@@ -846,7 +838,7 @@ def run_audit(url: str, company_name: str, competitors: list) -> dict:
             pillar3_data["has_sitemap"] = pillar2_data["has_sitemap_xml"]
 
     finally:
-        pool.shutdown(wait=False)
+        pool.shutdown(wait=False, cancel_futures=True)
 
     print("[audit] Building facts pack...")
     facts = build_facts_pack(

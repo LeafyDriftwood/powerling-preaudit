@@ -217,6 +217,14 @@ Return JSON only:
         tools=[{"type": "web_search"}],
         input=prompt,
     )
+    usage = getattr(resp, "usage", None)
+    if usage:
+        print(
+            f"[pillar4 step2 tokens] "
+            f"input={getattr(usage, 'input_tokens', '?')}  "
+            f"output={getattr(usage, 'output_tokens', '?')}  "
+            f"total={getattr(usage, 'total_tokens', '?')}"
+        )
     raw = resp.output_text
     clean = re.sub(r"^```(?:json)?\s*", "", raw.strip())
     clean = re.sub(r"\s*```$", "", clean)
