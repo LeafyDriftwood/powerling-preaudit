@@ -1,4 +1,6 @@
 import json
+import os
+import threading
 import uuid
 from datetime import datetime
 
@@ -7,7 +9,7 @@ load_dotenv()
 
 from fastapi import FastAPI, BackgroundTasks, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import create_engine, Column, String, DateTime, Text
+from sqlalchemy import create_engine, event, Column, String, DateTime, Text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
@@ -19,7 +21,7 @@ app = FastAPI()
 # Enable CORS for frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=[os.environ.get("FRONTEND_ORIGIN", "http://localhost:3000")],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -30,6 +32,14 @@ SQLALCHEMY_DATABASE_URL = "sqlite:///./audit_jobs.db"
 engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
+
+@event.listens_for(engine, "connect")
+def _set_wal_mode(dbapi_connection, connection_record):
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.close()
+
+_audit_semaphore = threading.Semaphore(2)
 
 
 class AuditJob(Base):
@@ -52,6 +62,7 @@ Base.metadata.create_all(bind=engine)
 # Background task
 def run_audit_job(job_id: str, url: str, company_name: str, competitors: list):
     """Runs the full audit pipeline and updates the DB record when done."""
+    _audit_semaphore.acquire()
     db = SessionLocal()
     try:
         # Mark as processing
@@ -80,6 +91,23 @@ def run_audit_job(job_id: str, url: str, company_name: str, competitors: list):
             db.commit()
     finally:
         db.close()
+        _audit_semaphore.release()
+
+
+# Startup cleanup
+@app.on_event("startup")
+def cleanup_stale_jobs():
+    db = SessionLocal()
+    stale = db.query(AuditJob).filter(
+        AuditJob.status.in_(["processing", "pending"])
+    ).all()
+    for job in stale:
+        job.status = "error"
+        job.error_message = "Server restarted while audit was in progress"
+    if stale:
+        print(f"[startup] Reset {len(stale)} stale job(s) to error")
+    db.commit()
+    db.close()
 
 
 # Endpoints

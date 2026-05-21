@@ -744,10 +744,11 @@ def run_audit(url: str, company_name: str, competitors: list) -> dict:
                           f"hreflang: {client_crawler.get('hreflang_present')} | "
                           f"x-default: {client_crawler.get('hreflang_x_default_present')}")
                     # Sanity check: if only 1 locale detected, the crawler likely hit a
-                    # JS-rendering race or was blocked — treat as soft failure so GPT fills in.
+                    # JS-rendering race or was blocked — drop available_languages so GPT fills
+                    # it in, but keep hreflang/locale_urls/cookie data which are still valid.
                     if len(client_crawler.get("available_languages", [])) <= 1:
-                        print("[audit]   Crawler returned <=1 locale — treating as soft failure, falling back to GPT.")
-                        client_crawler = None
+                        print("[audit]   Crawler returned <=1 locale — dropping available_languages, GPT will fill in.")
+                        client_crawler.pop("available_languages", None)
                     if client_crawler and gather_mixed_language_issues:
                         print("[audit]   Running GPT-5 mixed language check...")
                         ml_issues = gather_mixed_language_issues(

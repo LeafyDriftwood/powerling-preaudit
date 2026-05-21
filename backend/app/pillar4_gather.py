@@ -350,11 +350,18 @@ def _step4_gpt_research(
     else:
         yt_json = json.dumps({"url": None, "subscribers": None, "videos": None, "last_active": None})
 
+    yt_note = (
+        "Do NOT search for YouTube — it is pre-filled in the output JSON from our API."
+        if youtube_data else
+        "YouTube: find the official channel URL, subscriber count, and last active date."
+    )
+
     prompt = f"""
 You are auditing the online reputation of {company_name} ({domain}).
 
 TASK A — Social media accounts.
 Find the official account for each platform: LinkedIn, X/Twitter, Instagram, Facebook.
+{yt_note}
 The links below are starting points found on the company website — use them as hints,
 but if a link is missing, search for the account independently. If a link looks like
 a regional or secondary account, find the main one instead.
@@ -496,6 +503,7 @@ def gather_pillar4_facts(domain: str, company_name: str) -> dict:
     candidate_links = _step3_footer_scraper(domain)
 
     # Step 4
+    print(f"[pillar4] youtube_data before step4: {youtube_data}")
     result = _step4_gpt_research(domain, company_name, youtube_data, candidate_links)
 
     if result is None:
@@ -503,5 +511,14 @@ def gather_pillar4_facts(domain: str, company_name: str) -> dict:
 
     if not isinstance(result.get("controversies"), list):
         result["controversies"] = []
+
+    # Overwrite youtube with API data if we have a confident match — don't trust GPT to copy it
+    if youtube_data:
+        result.setdefault("social_media", {})["youtube"] = {
+            "url": youtube_data["channel_url"],
+            "subscribers": youtube_data["subscribers"],
+            "videos": youtube_data["videos"],
+            "last_active": None,
+        }
 
     return result
