@@ -28,7 +28,7 @@ export default function RootLayout({
     <html lang="en">
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased pt-14`}>
         <nav className="fixed top-0 left-0 right-0 z-50 h-14 bg-white border-b border-gray-200 flex items-center justify-between px-6">
-          <Link href="/" className="text-orange-600 font-bold text-lg hover:text-orange-700 transition">
+          <Link href="/" className="text-green-800 font-bold text-lg hover:text-green-900 transition">
             Powerling Pre-Audit
           </Link>
           <div className="flex items-center gap-4">
@@ -37,7 +37,7 @@ export default function RootLayout({
             </Link>
             <Link
               href="/"
-              className="bg-orange-500 text-white rounded-full px-4 py-1.5 text-sm font-semibold hover:bg-orange-600 transition"
+              className="bg-green-700 text-white rounded-full px-4 py-1.5 text-sm font-semibold hover:bg-green-800 transition"
             >
               New Audit
             </Link>
