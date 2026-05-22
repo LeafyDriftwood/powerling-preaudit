@@ -80,7 +80,6 @@ interface Facts {
     indeed_url?: string;
     indeed_score?: number;
     indeed_reviews?: number;
-
     social_media?: Record<string, { url?: string; followers?: string; subscribers?: string; last_active?: string }>;
     trade_fair_presence?: unknown[];
     credibility_assets?: string[];
@@ -114,6 +113,14 @@ function scoreColor(score?: number) {
   return "text-red-600";
 }
 
+function tierColor(tier?: string) {
+  if (!tier) return "bg-gray-100 text-gray-500";
+  if (tier === "Full Coverage") return "bg-green-100 text-green-700";
+  if (tier === "Strong Coverage") return "bg-lime-100 text-lime-700";
+  if (tier === "Partial Coverage") return "bg-yellow-100 text-yellow-700";
+  return "bg-red-100 text-red-700";
+}
+
 function StarRating({ score, max = 5 }: { score?: number | string; max?: number }) {
   const num = typeof score === "string" ? parseFloat(score) : score;
   if (!num || isNaN(num)) return <span className="text-gray-400 text-sm">N/A</span>;
@@ -121,7 +128,7 @@ function StarRating({ score, max = 5 }: { score?: number | string; max?: number 
   return (
     <div className="flex items-center gap-2">
       <div className="relative h-2 flex-1 bg-gray-100 rounded-full overflow-hidden">
-        <div className="absolute inset-y-0 left-0 bg-orange-400 rounded-full" style={{ width: `${pct}%` }} />
+        <div className="absolute inset-y-0 left-0 bg-green-500 rounded-full" style={{ width: `${pct}%` }} />
       </div>
       <span className="text-sm font-semibold text-gray-700">{num.toFixed(1)}</span>
     </div>
@@ -174,7 +181,7 @@ function SectionHeader({ id, title, subtitle }: { id: string; title: string; sub
     <div id={id} className="flex items-start gap-3 pt-2">
       <div>
         <h2 className="text-xl font-bold text-gray-900">{title}</h2>
-        <p className="text-sm text-orange-600 font-medium mt-0.5">{subtitle}</p>
+        <p className="text-sm text-green-700 font-medium mt-0.5">{subtitle}</p>
       </div>
     </div>
   );
@@ -188,7 +195,7 @@ function FindingsRecs({ findings, recommendations }: { findings: string[]; recom
         <ul className="flex flex-col gap-2">
           {findings.map((f, i) => (
             <li key={i} className="flex gap-2 text-sm text-gray-700">
-              <span className="text-orange-400 mt-0.5 flex-shrink-0">•</span>
+              <span className="text-green-500 mt-0.5 flex-shrink-0">•</span>
               <span>{f}</span>
             </li>
           ))}
@@ -214,6 +221,69 @@ function Card({ children, className = "" }: { children: React.ReactNode; classNa
     <div className={`bg-white rounded-xl border border-gray-200 shadow-sm ${className}`}>
       {children}
     </div>
+  );
+}
+
+function CompetitorTable({ clientName, p1, competitors }: {
+  clientName: string;
+  p1: Facts["pillar_1_globalization"];
+  competitors: Facts["competitor_facts"];
+}) {
+  const rows = [
+    { name: clientName, lcr_score: p1.lcr_score, lcr_tier: p1.lcr_tier, languages: p1.lcr_available, isClient: true },
+    ...competitors.map(c => ({
+      name: c.company_name ?? "—",
+      lcr_score: c.lcr_score,
+      lcr_tier: c.lcr_tier,
+      languages: c.available_languages?.length,
+      isClient: false,
+    })),
+  ];
+
+  return (
+    <Card className="overflow-hidden">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="bg-gray-50 border-b border-gray-200">
+            <th className="text-left px-5 py-3 font-semibold text-gray-600">Company</th>
+            <th className="text-left px-5 py-3 font-semibold text-gray-600">LCR Score</th>
+            <th className="text-left px-5 py-3 font-semibold text-gray-600">Tier</th>
+            <th className="text-left px-5 py-3 font-semibold text-gray-600">Languages</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-100">
+          {rows.map((row, i) => (
+            <tr key={i} className={row.isClient ? "bg-green-50" : "hover:bg-gray-50 transition"}>
+              <td className="px-5 py-3 font-medium text-gray-900">
+                {row.name}
+                {row.isClient && <span className="ml-2 text-xs text-green-600 font-normal">(client)</span>}
+              </td>
+              <td className="px-5 py-3">
+                {row.lcr_score != null ? (
+                  <div className="flex items-center gap-2">
+                    <div className="w-24 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full ${row.lcr_score >= 76 ? "bg-green-500" : row.lcr_score >= 51 ? "bg-yellow-500" : "bg-red-500"}`}
+                        style={{ width: `${row.lcr_score}%` }}
+                      />
+                    </div>
+                    <span className={`font-semibold ${scoreColor(row.lcr_score)}`}>{row.lcr_score}%</span>
+                  </div>
+                ) : <span className="text-gray-400">—</span>}
+              </td>
+              <td className="px-5 py-3">
+                {row.lcr_tier ? (
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${tierColor(row.lcr_tier)}`}>{row.lcr_tier}</span>
+                ) : <span className="text-gray-400">—</span>}
+              </td>
+              <td className="px-5 py-3 text-gray-700 font-medium">
+                {row.languages ?? <span className="text-gray-400">—</span>}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </Card>
   );
 }
 
@@ -254,9 +324,9 @@ export default function ResultPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-white to-orange-50 flex items-center justify-center">
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-orange-500" />
+          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-green-700" />
           <p className="text-gray-600">Loading report...</p>
         </div>
       </div>
@@ -265,11 +335,11 @@ export default function ResultPage() {
 
   if (error || !data || !meta) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-white to-orange-50 flex items-center justify-center px-6">
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center px-6">
         <div className="flex flex-col items-center gap-4 text-center max-w-md">
           <h1 className="text-2xl font-bold text-red-600">Error</h1>
           <p className="text-gray-700">{error ?? "No data available."}</p>
-          <Link href="/audits" className="text-orange-600 font-semibold hover:text-orange-700">← All Audits</Link>
+          <Link href="/audits" className="text-green-700 font-semibold hover:text-green-800">← All Audits</Link>
         </div>
       </div>
     );
@@ -291,13 +361,13 @@ export default function ResultPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-white to-orange-50">
+    <div className="min-h-screen bg-slate-50">
 
       {/* Sticky top bar */}
       <div className="sticky top-0 z-30 bg-white border-b border-gray-200 shadow-sm">
         <div className="max-w-6xl mx-auto px-6 py-3 flex items-center justify-between gap-4">
           <div className="flex items-center gap-4 min-w-0">
-            <Link href="/audits" className="text-orange-600 hover:text-orange-700 text-sm font-semibold whitespace-nowrap">
+            <Link href="/audits" className="text-green-700 hover:text-green-800 text-sm font-semibold whitespace-nowrap">
               ← All Audits
             </Link>
             <div className="hidden md:block h-4 w-px bg-gray-200" />
@@ -311,7 +381,7 @@ export default function ResultPage() {
               <a
                 key={a.id}
                 href={`#${a.id}`}
-                className="px-3 py-1.5 text-xs font-medium text-gray-600 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition-colors"
+                className="px-3 py-1.5 text-xs font-medium text-gray-600 hover:text-green-700 hover:bg-green-50 rounded-lg transition-colors"
               >
                 {a.label}
               </a>
@@ -342,7 +412,7 @@ export default function ResultPage() {
             <ul className="flex flex-col gap-3">
               {(ui_content?.executive_summary ?? []).map((bullet, i) => (
                 <li key={i} className="flex gap-3 items-start">
-                  <span className="mt-1 flex-shrink-0 w-5 h-5 rounded-full bg-orange-100 text-orange-600 text-xs font-bold flex items-center justify-center">{i + 1}</span>
+                  <span className="mt-1 flex-shrink-0 w-5 h-5 rounded-full bg-green-100 text-green-700 text-xs font-bold flex items-center justify-center">{i + 1}</span>
                   <span className="text-gray-800">{bullet}</span>
                 </li>
               ))}
@@ -411,7 +481,7 @@ export default function ResultPage() {
                   <p className="text-xs text-gray-500 mb-2">Available languages</p>
                   <div className="flex flex-wrap gap-1">
                     {p1.available_languages.map((lang) => (
-                      <span key={lang} className="px-2 py-0.5 bg-orange-50 text-orange-700 text-xs font-medium rounded-md">{lang}</span>
+                      <span key={lang} className="px-2 py-0.5 bg-green-50 text-green-700 text-xs font-medium rounded-md">{lang}</span>
                     ))}
                   </div>
                 </div>
@@ -433,7 +503,6 @@ export default function ResultPage() {
           <SectionHeader id="pillar2-hdr" title="Pillar 2 — Website Health" subtitle={ui_content?.pillar_2?.headline ?? ""} />
           <div className="grid md:grid-cols-2 gap-4">
 
-            {/* Left: PSI scores + crawl stats */}
             <Card className="p-5 flex flex-col gap-5">
               {p2.psi_ran ? (
                 <div className="flex flex-col gap-3">
@@ -479,7 +548,6 @@ export default function ResultPage() {
               </div>
             </Card>
 
-            {/* Right */}
             <Card className="p-5">
               <FindingsRecs
                 findings={ui_content?.pillar_2?.findings ?? []}
@@ -494,7 +562,6 @@ export default function ResultPage() {
           <SectionHeader id="pillar3-hdr" title="Pillar 3 — Accessibility & Compliance" subtitle={ui_content?.pillar_3?.headline ?? ""} />
           <div className="grid md:grid-cols-2 gap-4">
 
-            {/* Left */}
             <Card className="p-5 flex flex-col gap-4">
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div className="bg-gray-50 rounded-lg p-3">
@@ -545,7 +612,6 @@ export default function ResultPage() {
               )}
             </Card>
 
-            {/* Right */}
             <Card className="p-5">
               <FindingsRecs
                 findings={ui_content?.pillar_3?.findings ?? []}
@@ -560,7 +626,6 @@ export default function ResultPage() {
           <SectionHeader id="pillar4-hdr" title="Pillar 4 — Online Reputation" subtitle={ui_content?.pillar_4?.headline ?? ""} />
           <div className="grid md:grid-cols-2 gap-4">
 
-            {/* Left */}
             <Card className="p-5 flex flex-col gap-5">
               <div className="flex flex-col gap-3">
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Review Ratings</p>
@@ -599,7 +664,6 @@ export default function ResultPage() {
                 )}
               </div>
 
-              {/* Social media */}
               {Object.keys(p4.social_media ?? {}).length > 0 && (
                 <div>
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Social Media</p>
@@ -608,11 +672,13 @@ export default function ResultPage() {
                       if (!d?.url) return null;
                       const rawCount = d.followers ?? d.subscribers;
                       const hasCount = rawCount && rawCount !== "N/A";
-                      const num = hasCount && typeof rawCount === "string" ? parseInt(rawCount.replace(/,/g, ""), 10) : rawCount;
-                      const display = hasCount && !isNaN(num as number) ? (num as number).toLocaleString() : rawCount;
+                      const cleaned = hasCount && typeof rawCount === "string" ? rawCount.replace(/,/g, "") : "";
+                      const num = cleaned ? parseInt(cleaned, 10) : NaN;
+                      const isPlainNumber = !isNaN(num) && String(num) === cleaned;
+                      const display = isPlainNumber ? `~${num.toLocaleString()}` : `~${rawCount}`;
                       return (
                         <div key={platform} className="flex items-center justify-between text-sm">
-                          <a href={d.url} target="_blank" rel="noopener noreferrer" className="capitalize text-gray-600 hover:text-orange-600 underline underline-offset-2">
+                          <a href={d.url} target="_blank" rel="noopener noreferrer" className="capitalize text-gray-600 hover:text-green-700 underline underline-offset-2">
                             {platform}
                           </a>
                           {hasCount ? (
@@ -628,7 +694,6 @@ export default function ResultPage() {
               )}
             </Card>
 
-            {/* Right */}
             <Card className="p-5">
               <FindingsRecs
                 findings={ui_content?.pillar_4?.findings ?? []}
@@ -641,6 +706,14 @@ export default function ResultPage() {
         {/* ── Competitive Landscape ───────────────────────────────────────── */}
         <section id="competitors" className="flex flex-col gap-4 scroll-mt-20">
           <SectionHeader id="competitors-hdr" title="Competitive Landscape" subtitle="How the client compares to the competitive set" />
+
+          {facts.competitor_facts?.length > 0 && (
+            <CompetitorTable
+              clientName={facts.company_name}
+              p1={p1}
+              competitors={facts.competitor_facts}
+            />
+          )}
 
           {ui_content?.competitive_landscape && (
             <Card className="p-5">
@@ -671,7 +744,6 @@ export default function ResultPage() {
               </div>
             </Card>
           )}
-
         </section>
 
         {/* Raw JSON */}
@@ -688,7 +760,7 @@ export default function ResultPage() {
                 <span className="text-sm font-semibold text-gray-600">Raw Report JSON</span>
                 <button
                   onClick={() => navigator.clipboard.writeText(JSON.stringify(data, null, 2))}
-                  className="text-xs text-orange-600 hover:text-orange-700 font-medium"
+                  className="text-xs text-green-700 hover:text-green-800 font-medium"
                 >
                   Copy
                 </button>
