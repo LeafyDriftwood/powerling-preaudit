@@ -9,6 +9,11 @@ Two public functions:
 import json
 import os
 import re
+
+try:
+    from app.log_ctx import plog
+except ImportError:
+    from log_ctx import plog
 from urllib.parse import urlparse
 from typing import Dict, Optional
 
@@ -361,7 +366,7 @@ def gather_pillar1_facts(url: str) -> dict:
             page = browser.new_page()
             page.set_default_timeout(15000)
 
-            print(f"[crawler] Loading {url} ...")
+            plog(f"[crawler] Loading {url} ...")
             page.goto(url, wait_until="domcontentloaded")
 
             # Wait for hreflang tags to appear — JS frameworks (e.g. Next.js) may inject
@@ -397,12 +402,12 @@ def gather_pillar1_facts(url: str) -> dict:
                     || document.querySelector('meta[property="og:locale"]')?.getAttribute('content')
                     || '';
             }""")
-            print(f"[crawler] Homepage lang signal: {html_lang!r}")
+            plog(f"[crawler] Homepage lang signal: {html_lang!r}")
             if html_lang:
                 base_code = _normalize_lang(html_lang)
                 if _is_probable_lang_code(base_code) and base_code not in locale_urls:
                     locale_urls[base_code] = url
-                    print(f"[crawler] Added base language {base_code} from html/og:locale")
+                    plog(f"[crawler] Added base language {base_code} from html/og:locale")
 
                 html_variant = str(html_lang).replace("_", "-").upper()
                 if html_variant and html_variant != "X-DEFAULT":
@@ -423,19 +428,19 @@ def gather_pillar1_facts(url: str) -> dict:
             cookie_info = _detect_cookie_banner(page)
             result["cookie_banner_detected"] = cookie_info.get("detected", False)
             result["cookie_provider"] = cookie_info.get("provider")
-            print(f"[crawler] Cookie banner: {result['cookie_banner_detected']} (provider: {result['cookie_provider']})")
+            plog(f"[crawler] Cookie banner: {result['cookie_banner_detected']} (provider: {result['cookie_provider']})")
 
-            print(f"[crawler] Found {len(locale_urls)} locales: {list(locale_urls.keys())}")
+            plog(f"[crawler] Found {len(locale_urls)} locales: {list(locale_urls.keys())}")
 
             browser.close()
             result["crawler_ran"] = True
-            print(f"[crawler] Pillar 1 crawl complete. "
+            plog(f"[crawler] Pillar 1 crawl complete. "
                   f"{result['pages_checked']} pages checked, "
                   f"{len(result['mixed_language_issues'])} locales with mixed-language markers.")
 
     except Exception as e:
         result["crawler_error"] = str(e)
-        print(f"[crawler] ERROR: {e}")
+        plog(f"[crawler] ERROR: {e}")
 
     return result
 
@@ -560,7 +565,7 @@ Return an empty array if no issues are found. No markdown fences.
         )
         usage = getattr(resp, "usage", None)
         if usage:
-            print(
+            plog(
                 f"[pillar1 mixed-lang tokens] "
                 f"input={getattr(usage, 'input_tokens', '?')}  "
                 f"output={getattr(usage, 'output_tokens', '?')}  "
@@ -575,7 +580,7 @@ Return an empty array if no issues are found. No markdown fences.
             try:
                 from json_repair import repair_json
                 result = json.loads(repair_json(clean))
-                print("  [json_repair] Recovered mixed-language JSON.")
+                plog("  [json_repair] Recovered mixed-language JSON.")
             except Exception:
                 match = re.search(r'\[.*\]', clean, re.DOTALL)
                 if match:
@@ -598,5 +603,5 @@ Return an empty array if no issues are found. No markdown fences.
             )
         ]
     except Exception as e:
-        print(f"  [warn] gather_mixed_language_issues failed: {e}")
+        plog(f"  [warn] gather_mixed_language_issues failed: {e}")
         return []

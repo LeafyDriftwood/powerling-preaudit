@@ -15,6 +15,11 @@ Data sources (all free, no auth required for basic use):
 import json
 import os
 import re
+
+try:
+    from app.log_ctx import plog
+except ImportError:
+    from log_ctx import plog
 import time
 from typing import Dict, List, Optional
 from urllib.parse import urlparse, urljoin
@@ -226,7 +231,7 @@ def gather_pagespeed_data(
             )
             if resp.status_code == 429 and attempt < (max_attempts - 1):
                 backoff = 15 * (attempt + 1)
-                print(f"[p2]   PSI rate-limited ({strategy}, {url}), retrying in {backoff}s...")
+                plog(f"[p2]   PSI rate-limited ({strategy}, {url}), retrying in {backoff}s...")
                 time.sleep(backoff)
                 continue
             resp.raise_for_status()
@@ -234,21 +239,21 @@ def gather_pagespeed_data(
         except requests.exceptions.Timeout as e:
             if attempt < (max_attempts - 1):
                 backoff = 5 * (attempt + 1)
-                print(f"[p2]   PSI timeout ({strategy}, {url}), retrying in {backoff}s...")
+                plog(f"[p2]   PSI timeout ({strategy}, {url}), retrying in {backoff}s...")
                 time.sleep(backoff)
                 continue
-            print(f"[p2]   PSI timeout ({strategy}, {url}): {e}")
+            plog(f"[p2]   PSI timeout ({strategy}, {url}): {e}")
             return _empty_psi(url, strategy, f"timeout: {e}")
         except requests.exceptions.RequestException as e:
             if attempt < (max_attempts - 1):
                 backoff = 3 * (attempt + 1)
-                print(f"[p2]   PSI request failed ({strategy}, {url}), retrying in {backoff}s...")
+                plog(f"[p2]   PSI request failed ({strategy}, {url}), retrying in {backoff}s...")
                 time.sleep(backoff)
                 continue
-            print(f"[p2]   PSI failed ({strategy}, {url}): {e}")
+            plog(f"[p2]   PSI failed ({strategy}, {url}): {e}")
             return _empty_psi(url, strategy, str(e))
         except Exception as e:
-            print(f"[p2]   PSI failed ({strategy}, {url}): {e}")
+            plog(f"[p2]   PSI failed ({strategy}, {url}): {e}")
             return _empty_psi(url, strategy, str(e))
 
     return _empty_psi(url, strategy, "rate-limited after retry")
@@ -364,7 +369,7 @@ def gather_homepage_technical_facts(url: str) -> dict:
         result["checker_ran"] = True
     except Exception as e:
         result["checker_error"] = str(e)
-        print(f"[p2]   Homepage technical check failed: {e}")
+        plog(f"[p2]   Homepage technical check failed: {e}")
 
     return result
 
@@ -384,11 +389,11 @@ def gather_pillar2_facts(
     url:     client homepage URL
     api_key: optional GOOGLE_PAGESPEED_API_KEY for higher rate limits
     """
-    print(f"[p2] Gathering website health for {url} ...")
+    plog(f"[p2] Gathering website health for {url} ...")
     if api_key is None:
         api_key = os.environ.get("GOOGLE_PAGESPEED_API_KEY")
     if not api_key:
-        print("[p2]   No GOOGLE_PAGESPEED_API_KEY provided; using lower unauthenticated quota.")
+        plog("[p2]   No GOOGLE_PAGESPEED_API_KEY provided; using lower unauthenticated quota.")
 
     result = {
         "psi_ran": False,
@@ -484,7 +489,7 @@ def gather_pillar2_facts(
     }
 
     # 1. Homepage PSI - mobile
-    print(f"[p2]   PSI homepage mobile ...")
+    plog(f"[p2]   PSI homepage mobile ...")
     mobile = gather_pagespeed_data(url, strategy="mobile", api_key=api_key)
     result["homepage_mobile"] = mobile
     if mobile.get("psi_ran"):
@@ -521,7 +526,7 @@ def gather_pillar2_facts(
     time.sleep(_PSI_DELAY)
 
     # 2. Homepage PSI - desktop
-    print(f"[p2]   PSI homepage desktop ...")
+    plog(f"[p2]   PSI homepage desktop ...")
     desktop = gather_pagespeed_data(url, strategy="desktop", api_key=api_key)
     result["homepage_desktop"] = desktop
     if desktop.get("psi_ran"):
@@ -535,7 +540,7 @@ def gather_pillar2_facts(
     # Re-enable when locale performance benchmarking is needed.
 
     # 4. Homepage technical checks
-    print(f"[p2]   Homepage technical checks ...")
+    plog(f"[p2]   Homepage technical checks ...")
     tech = gather_homepage_technical_facts(url)
     if tech.get("checker_ran"):
         for field in [
@@ -546,7 +551,7 @@ def gather_pillar2_facts(
             result[field] = tech[field]
 
     # 5. Site crawl (DataForSEO OnPage API)
-    print(f"[p2]   Site crawl via DataForSEO (up to {max_crawl_pages} pages) ...")
+    plog(f"[p2]   Site crawl via DataForSEO (up to {max_crawl_pages} pages) ...")
     try:
         from .dataforseo_crawl import gather_site_crawl_facts_dataforseo as _gather_crawl
     except ImportError:
@@ -558,7 +563,7 @@ def gather_pillar2_facts(
     if _gather_crawl:
         crawl = _gather_crawl(url, max_pages=max_crawl_pages)
     else:
-        print("[p2]   dataforseo_crawl module not available, skipping crawl.")
+        plog("[p2]   dataforseo_crawl module not available, skipping crawl.")
         crawl = {"crawl_ran": False, "crawl_error": "dataforseo_crawl module not available"}
 
     result["crawl_ran"] = crawl.get("crawl_ran", False)
@@ -602,7 +607,7 @@ def gather_pillar2_facts(
         result["broken_resources_pages"] = crawl.get("broken_resources_pages")
         result["dataforseo_task_id"] = crawl.get("dataforseo_task_id")
 
-    print(
+    plog(
         f"[p2] Website health gather complete. "
         f"Pages tested: {result['pages_tested']}, "
         f"Crawled: {result.get('pages_crawled') or 0}"

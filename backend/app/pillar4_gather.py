@@ -14,6 +14,11 @@ Public API:
 import json
 import os
 import re
+
+try:
+    from app.log_ctx import plog
+except ImportError:
+    from log_ctx import plog
 from typing import Optional
 from urllib.parse import unquote, urlparse
 
@@ -52,7 +57,7 @@ def _fetch_channel_external_links(channel_id: str) -> list:
         resp = requests.get(url, headers=headers, timeout=12)
         resp.raise_for_status()
     except Exception as e:
-        print(f"  [warn] channel page fetch failed: {e}")
+        plog(f"  [warn] channel page fetch failed: {e}")
         return []
 
     text = resp.text.replace("\\u0026", "&").replace("\\u003d", "=")
@@ -112,7 +117,7 @@ def _step1_youtube(domain: str, company_name: str) -> tuple:
         det_resp.raise_for_status()
         channels = det_resp.json().get("items", [])
     except Exception as e:
-        print(f"  [warn] YouTube API call failed: {e}")
+        plog(f"  [warn] YouTube API call failed: {e}")
         return None, []
 
     confident = []
@@ -219,7 +224,7 @@ Return JSON only:
     )
     usage = getattr(resp, "usage", None)
     if usage:
-        print(
+        plog(
             f"[pillar4 step2 tokens] "
             f"input={getattr(usage, 'input_tokens', '?')}  "
             f"output={getattr(usage, 'output_tokens', '?')}  "
@@ -292,7 +297,7 @@ def _step3_footer_scraper(domain: str) -> dict:
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, "html.parser")
     except Exception as e:
-        print(f"  [warn] footer scraper failed for {url}: {e}")
+        plog(f"  [warn] footer scraper failed for {url}: {e}")
         return {}
 
     search_zones = []
@@ -454,7 +459,7 @@ exact count is unavailable, return null.
     )
     usage = getattr(resp, "usage", None)
     if usage:
-        print(
+        plog(
             f"[pillar4 step4 tokens] "
             f"input={getattr(usage, 'input_tokens', '?')}  "
             f"output={getattr(usage, 'output_tokens', '?')}  "
@@ -503,7 +508,7 @@ def gather_pillar4_facts(domain: str, company_name: str) -> dict:
     candidate_links = _step3_footer_scraper(domain)
 
     # Step 4
-    print(f"[pillar4] youtube_data before step4: {youtube_data}")
+    plog(f"[pillar4] youtube_data before step4: {youtube_data}")
     result = _step4_gpt_research(domain, company_name, youtube_data, candidate_links)
 
     if result is None:

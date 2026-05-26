@@ -32,6 +32,11 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 from openai import OpenAI
 
+try:
+    from app.log_ctx import _ctx, plog
+except ImportError:
+    from log_ctx import _ctx, plog
+
 client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
 
@@ -46,22 +51,22 @@ def _parse_json(text: str, label: str = "") -> dict:
     try:
         return json.loads(text)
     except json.JSONDecodeError as e:
-        prefix = f"[{label}] " if label else ""
-        print(f"{prefix}JSON parse error: {e}")
-        print(f"{prefix}Response length: {len(text)} chars")
-        print(f"{prefix}Last 300 chars: {text[-300:]!r}")
+        tag = f"[{label}] " if label else ""
+        plog(f"{tag}JSON parse error: {e}")
+        plog(f"{tag}Response length: {len(text)} chars")
+        plog(f"{tag}Last 300 chars: {text[-300:]!r}")
         try:
             from json_repair import repair_json
             repaired = repair_json(text)
             result = json.loads(repaired)
-            print(f"{prefix}Recovered via json_repair.")
+            plog(f"{tag}Recovered via json_repair.")
             return result
         except Exception:
             pass
         # Try to extract a JSON object from within the text (handles preamble/postamble)
         match = re.search(r'\{.*\}', text, re.DOTALL)
         if match:
-            print(f"{prefix}Attempting extraction from embedded JSON block...")
+            plog(f"{tag}Attempting extraction from embedded JSON block...")
             return json.loads(match.group())
         raise
 
@@ -112,7 +117,7 @@ def gather_all_client_data(url: str, company_name: str, crawler_facts: dict = No
         ml_detail_json = json.dumps(ml_issues[:5], ensure_ascii=False)
         locale_urls_json = json.dumps(crawler_facts.get("locale_urls", {}), ensure_ascii=False)
         hreflang_tags_count = len(crawler_facts.get("hreflang_tags", []))
-        print(f"[audit]   hreflang tags count: {hreflang_tags_count}")
+        plog(f"[audit]   hreflang tags count: {hreflang_tags_count}")
         target_langs_json = json.dumps(crawler_facts.get("target_languages", []), ensure_ascii=False)
 
         x_default_status = (
@@ -257,10 +262,10 @@ IMPORTANT: The JSON below shows field names and value types ONLY. Do NOT copy th
     )
     usage = getattr(resp1, "usage", None)
     if usage:
-        print(f"[audit] turn1 tokens: input={getattr(usage, 'input_tokens', '?')} output={getattr(usage, 'output_tokens', '?')}")
+        plog(f"[audit] turn1 tokens: input={getattr(usage, 'input_tokens', '?')} output={getattr(usage, 'output_tokens', '?')}")
     p1_text = resp1.output_text
     pillar1_data = _parse_json(p1_text, label="Turn1-Globalization")
-    print("[audit]   Turn 1 (Globalization) complete.")
+    plog("[audit]   Turn 1 (Globalization) complete.")
 
     # ------------------------------------------------------------------
     # Turn 2: Accessibility & Compliance (independent call — avoids TPM ceiling)
@@ -352,10 +357,10 @@ IMPORTANT: The JSON below shows field names and value types ONLY. Do NOT copy th
     )
     usage = getattr(resp2, "usage", None)
     if usage:
-        print(f"[audit] turn2 tokens: input={getattr(usage, 'input_tokens', '?')} output={getattr(usage, 'output_tokens', '?')}")
+        plog(f"[audit] turn2 tokens: input={getattr(usage, 'input_tokens', '?')} output={getattr(usage, 'output_tokens', '?')}")
     p3_text = resp2.output_text
     pillar3_data = _parse_json(p3_text, label="Turn2-Accessibility")
-    print("[audit]   Turn 2 (Accessibility) complete.")
+    plog("[audit]   Turn 2 (Accessibility) complete.")
 
     return pillar1_data, pillar3_data
 
@@ -432,7 +437,7 @@ IMPORTANT: The JSON below shows field names and value types ONLY. Do NOT copy th
     )
     usage = getattr(response, "usage", None)
     if usage:
-        print(f"[audit] competitor tokens: input={getattr(usage, 'input_tokens', '?')} output={getattr(usage, 'output_tokens', '?')}")
+        plog(f"[audit] competitor tokens: input={getattr(usage, 'input_tokens', '?')} output={getattr(usage, 'output_tokens', '?')}")
     return _parse_json(response.output_text)
 
 
@@ -648,7 +653,7 @@ Return ONLY a valid JSON object with no markdown fences:
         )
         usage = getattr(resp, "usage", None)
         if usage:
-            print(
+            plog(
                 f"[audit] generate_ui_content tokens: "
                 f"input={getattr(usage, 'input_tokens', '?')} "
                 f"output={getattr(usage, 'output_tokens', '?')}"
@@ -656,7 +661,7 @@ Return ONLY a valid JSON object with no markdown fences:
         raw = resp.output_text
         return _parse_json(raw)
     except Exception as e:
-        print(f"[audit] generate_ui_content failed: {e}")
+        plog(f"[audit] generate_ui_content failed: {e}")
         return {}
 
 
@@ -664,7 +669,7 @@ Return ONLY a valid JSON object with no markdown fences:
 # Main pipeline entry point
 # ---------------------------------------------------------------------------
 
-def run_audit(url: str, company_name: str, competitors: list) -> dict:
+def run_audit(job_id: str, url: str, company_name: str, competitors: list) -> dict:
     """
     Run the full audit pipeline with I/O and competitor work parallelized.
     Pillar 2 (DataForSEO + PSI) and each competitor's full chain (Playwright crawl
@@ -673,7 +678,8 @@ def run_audit(url: str, company_name: str, competitors: list) -> dict:
     company_name and competitors are supplied by the user.
     Returns a structured dict with all generated content.
     """
-    print(f"[audit] Starting audit for {url} ({company_name})")
+    _ctx.job_id = job_id[:8]
+    plog(f"[audit] Starting audit for {url} ({company_name})")
 
     # --- All imports up front, before pool starts ---
     gather_pillar1_facts = None
@@ -681,7 +687,7 @@ def run_audit(url: str, company_name: str, competitors: list) -> dict:
     try:
         from app.pillar1_gather import gather_pillar1_facts, gather_mixed_language_issues
     except ImportError as _import_err:
-        print(f"[audit] WARNING: Could not import pillar1_gather: {_import_err}")
+        plog(f"[audit] WARNING: Could not import pillar1_gather: {_import_err}")
 
     _gather_p2 = None
     try:
@@ -690,7 +696,7 @@ def run_audit(url: str, company_name: str, competitors: list) -> dict:
         except ImportError:
             from website_health import gather_pillar2_facts as _gather_p2
     except Exception as e:
-        print(f"[audit] WARNING: Could not import website_health: {e}")
+        plog(f"[audit] WARNING: Could not import website_health: {e}")
 
     _gather_p4 = None
     try:
@@ -699,28 +705,29 @@ def run_audit(url: str, company_name: str, competitors: list) -> dict:
         except ImportError:
             from pillar4_gather import gather_pillar4_facts as _gather_p4
     except Exception as e:
-        print(f"[audit] WARNING: Could not import pillar4_gather: {e}")
+        plog(f"[audit] WARNING: Could not import pillar4_gather: {e}")
 
     # --- Nested competitor full-chain helper (Playwright crawl + GPT on same thread) ---
     def _run_competitor_full(comp_url: str) -> dict:
+        _ctx.job_id = job_id[:8]
         comp_langs = None
         if gather_pillar1_facts:
             try:
                 result = gather_pillar1_facts(comp_url)
                 if result.get("crawler_ran"):
                     comp_langs = result.get("available_languages")
-                    print(f"[audit]   Comp crawler OK ({comp_url}): {comp_langs}")
+                    plog(f"[audit]   Comp crawler OK ({comp_url}): {comp_langs}")
                 else:
-                    print(f"[audit]   Comp crawler failed ({comp_url}): {result.get('crawler_error', 'unknown')}")
+                    plog(f"[audit]   Comp crawler failed ({comp_url}): {result.get('crawler_error', 'unknown')}")
             except Exception as e:
-                print(f"[audit]   Comp crawler exception ({comp_url}): {e}")
+                plog(f"[audit]   Comp crawler exception ({comp_url}): {e}")
         try:
             comp_data = gather_competitor_benchmark_data(comp_url, crawler_available_languages=comp_langs)
             if comp_langs is not None:
                 comp_data["available_languages"] = comp_langs
             return comp_data
         except Exception as e:
-            print(f"[audit]   Comp GPT failed ({comp_url}): {e}")
+            plog(f"[audit]   Comp GPT failed ({comp_url}): {e}")
             return {"company_name": comp_url, "available_languages": comp_langs or [], "required_languages": []}
 
     # --- Launch background threads ---
@@ -729,50 +736,56 @@ def run_audit(url: str, company_name: str, competitors: list) -> dict:
     # GPT calls inside _run_competitor_full run on background threads; the main thread
     # GPT calls (Turn 1, Turn 2, Pillar 4, UI content) remain sequential.
     pool = ThreadPoolExecutor(max_workers=4)
-    fut_pillar2 = pool.submit(_gather_p2, url, max_crawl_pages=200) if _gather_p2 else None
+    if _gather_p2:
+        def _run_pillar2():
+            _ctx.job_id = job_id[:8]
+            return _gather_p2(url, max_crawl_pages=200)
+        fut_pillar2 = pool.submit(_run_pillar2)
+    else:
+        fut_pillar2 = None
     fut_comp_fulls = [pool.submit(_run_competitor_full, c) for c in competitors]
 
     try:
         # Phase 0: Playwright crawler - client site (main thread, critical path)
-        print("[audit] Phase 0: Running Playwright crawler for client site...")
+        plog("[audit] Phase 0: Running Playwright crawler for client site...")
         client_crawler = None
         try:
             if gather_pillar1_facts:
                 client_crawler = gather_pillar1_facts(url)
                 if client_crawler.get("crawler_ran"):
-                    print(f"[audit]   Crawler OK: {client_crawler.get('available_languages')} | "
-                          f"hreflang: {client_crawler.get('hreflang_present')} | "
-                          f"x-default: {client_crawler.get('hreflang_x_default_present')}")
+                    plog(f"[audit]   Crawler OK: {client_crawler.get('available_languages')} | "
+                         f"hreflang: {client_crawler.get('hreflang_present')} | "
+                         f"x-default: {client_crawler.get('hreflang_x_default_present')}")
                     # Sanity check: if only 1 locale detected, the crawler likely hit a
                     # JS-rendering race or was blocked — drop available_languages so GPT fills
                     # it in, but keep hreflang/locale_urls/cookie data which are still valid.
                     if len(client_crawler.get("available_languages", [])) <= 1:
-                        print("[audit]   Crawler returned <=1 locale — dropping available_languages, GPT will fill in.")
+                        plog("[audit]   Crawler returned <=1 locale — dropping available_languages, GPT will fill in.")
                         client_crawler.pop("available_languages", None)
                     if client_crawler and gather_mixed_language_issues:
-                        print("[audit]   Running GPT-5 mixed language check...")
+                        plog("[audit]   Running GPT-5 mixed language check...")
                         ml_issues = gather_mixed_language_issues(
                             url, client_crawler.get("locale_urls", {})
                         )
                         client_crawler["mixed_language_issues"] = ml_issues
-                        print(f"[audit]   Mixed language issues found: {len(ml_issues)}")
+                        plog(f"[audit]   Mixed language issues found: {len(ml_issues)}")
                 else:
-                    print(f"[audit]   Crawler did not run: {client_crawler.get('crawler_error')}")
+                    plog(f"[audit]   Crawler did not run: {client_crawler.get('crawler_error')}")
                     client_crawler = None
             else:
-                print("[audit]   Crawler not available, skipping.")
+                plog("[audit]   Crawler not available, skipping.")
         except Exception as e:
-            print(f"[audit]   Crawler exception: {e}")
+            plog(f"[audit]   Crawler exception: {e}")
             client_crawler = None
 
         # Phase 1: Gather client data (Turns 1+2: globalization + accessibility)
-        print("[audit] Phase 1: Gathering client data (Turns 1+2)...")
+        plog("[audit] Phase 1: Gathering client data (Turns 1+2)...")
         pillar1_data, pillar3_data = gather_all_client_data(
             url, company_name, crawler_facts=client_crawler
         )
 
         # Phase 1b: Gather Pillar 4 (online reputation) via pillar4_gather pipeline
-        print("[audit] Phase 1b: Gathering Pillar 4 (online reputation)...")
+        plog("[audit] Phase 1b: Gathering Pillar 4 (online reputation)...")
         pillar4_data = {}
         try:
             if _gather_p4:
@@ -783,9 +796,9 @@ def run_audit(url: str, company_name: str, competitors: list) -> dict:
                     if isinstance(_val, str):
                         _cleaned = re.sub(r"[^\d]", "", _val)
                         pillar4_data[_field] = int(_cleaned) if _cleaned else None
-                print(f"[audit]   Pillar 4 complete. Sentiment: {pillar4_data.get('overall_sentiment', 'N/A')}")
+                plog(f"[audit]   Pillar 4 complete. Sentiment: {pillar4_data.get('overall_sentiment', 'N/A')}")
         except Exception as e:
-            print(f"[audit]   Pillar 4 gathering failed: {e}")
+            plog(f"[audit]   Pillar 4 gathering failed: {e}")
             pillar4_data = {}
 
         # Merge crawler-only fields into pillar1_data (these never come from GPT)
@@ -812,13 +825,13 @@ def run_audit(url: str, company_name: str, competitors: list) -> dict:
             )
 
         # Collect competitor full-chain results (crawl+GPT ran on background threads)
-        print("[audit] Collecting competitor results...")
+        plog("[audit] Collecting competitor results...")
         competitor_facts = []
         for i, fut in enumerate(fut_comp_fulls):
             try:
                 comp_data = fut.result()
             except Exception as e:
-                print(f"[audit]   Comp {i+1} future failed: {e}")
+                plog(f"[audit]   Comp {i+1} future failed: {e}")
                 comp_data = {"company_name": competitors[i], "available_languages": [], "required_languages": []}
             competitor_facts.append(comp_data)
 
@@ -827,12 +840,12 @@ def run_audit(url: str, company_name: str, competitors: list) -> dict:
         if fut_pillar2:
             try:
                 pillar2_data = fut_pillar2.result()
-                print(f"[audit]   Pillar 2 complete. "
-                      f"PSI ran: {pillar2_data.get('psi_ran')}, "
-                      f"Crawl ran: {pillar2_data.get('crawl_ran')}, "
-                      f"Health score: {pillar2_data.get('site_health_score')}")
+                plog(f"[audit]   Pillar 2 complete. "
+                     f"PSI ran: {pillar2_data.get('psi_ran')}, "
+                     f"Crawl ran: {pillar2_data.get('crawl_ran')}, "
+                     f"Health score: {pillar2_data.get('site_health_score')}")
             except Exception as e:
-                print(f"[audit]   Pillar 2 gathering failed: {e}")
+                plog(f"[audit]   Pillar 2 gathering failed: {e}")
 
         # Override GPT's has_sitemap guess with authoritative value from website_health HTTP check
         if pillar2_data and pillar2_data.get("has_sitemap_xml") is not None:
@@ -841,7 +854,7 @@ def run_audit(url: str, company_name: str, competitors: list) -> dict:
     finally:
         pool.shutdown(wait=False, cancel_futures=True)
 
-    print("[audit] Building facts pack...")
+    plog("[audit] Building facts pack...")
     facts = build_facts_pack(
         url, company_name, competitors,
         pillar1_data, pillar3_data, pillar4_data,
@@ -850,10 +863,10 @@ def run_audit(url: str, company_name: str, competitors: list) -> dict:
     )
 
     # Phase 4: Generate UI content directly from facts pack (GPT-5)
-    print("[audit] Generating UI content from facts pack...")
+    plog("[audit] Generating UI content from facts pack...")
     ui_content = generate_ui_content(facts)
 
-    print("[audit] Done!")
+    plog("[audit] Done!")
 
     return {
         "facts": facts,

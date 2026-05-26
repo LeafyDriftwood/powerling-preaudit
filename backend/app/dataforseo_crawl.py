@@ -19,6 +19,11 @@ import os
 import time
 from urllib.parse import urlparse
 
+try:
+    from app.log_ctx import plog
+except ImportError:
+    from log_ctx import plog
+
 import requests
 
 _BASE = "https://api.dataforseo.com/v3/on_page"
@@ -81,7 +86,7 @@ def _request(session: requests.Session, method: str, url: str, **kwargs) -> dict
             resp = fn(url, timeout=_HTTP_TIMEOUT, **kwargs)
             if resp.status_code == 429 and attempt < _MAX_RETRIES - 1:
                 wait = _BACKOFF_429 * (2 ** attempt)
-                print(f"[dfseo] 429 rate-limited, retrying in {wait}s ...")
+                plog(f"[dfseo] 429 rate-limited, retrying in {wait}s ...")
                 time.sleep(wait)
                 continue
             resp.raise_for_status()
@@ -214,7 +219,7 @@ def gather_site_crawl_facts_dataforseo(
         # 1. Create crawl task
         # ----------------------------------------------------------------
         est = _cost_estimate(max_pages, enable_javascript, load_resources)
-        print(
+        plog(
             f"[dfseo] Starting OnPage crawl: {target} "
             f"(max {max_pages} pages, est. ${est:.4f}) ..."
         )
@@ -235,7 +240,7 @@ def gather_site_crawl_facts_dataforseo(
             raise RuntimeError("No task_id in task_post response.")
 
         result["dataforseo_task_id"] = task_id
-        print(f"[dfseo] Task created: {task_id}")
+        plog(f"[dfseo] Task created: {task_id}")
 
         # ----------------------------------------------------------------
         # 2. Poll until finished
@@ -250,13 +255,13 @@ def gather_site_crawl_facts_dataforseo(
             s_data = _request(session, "GET", f"{_BASE}/summary/{task_id}")
             summary_result = _dig(s_data, "tasks", 0, "result", 0)
             if not summary_result:
-                print(f"[dfseo] No summary result yet ({elapsed}s elapsed) ...")
+                plog(f"[dfseo] No summary result yet ({elapsed}s elapsed) ...")
                 continue
 
             progress = summary_result.get("crawl_progress", "")
             crawled = _dig(summary_result, "crawl_status", "pages_crawled") or 0
             in_queue = _dig(summary_result, "crawl_status", "pages_in_queue") or 0
-            print(
+            plog(
                 f"[dfseo] {progress} — crawled: {crawled}, in queue: {in_queue} "
                 f"({elapsed}s elapsed)"
             )
@@ -269,7 +274,7 @@ def gather_site_crawl_facts_dataforseo(
             raise TimeoutError(f"Crawl did not finish within {_POLL_TIMEOUT}s and no data was returned.")
         if partial:
             crawled_so_far = _dig(summary_result, "crawl_status", "pages_crawled") or 0
-            print(f"[dfseo] Warning: crawl timed out after {_POLL_TIMEOUT}s. Using partial results ({crawled_so_far} pages crawled).")
+            plog(f"[dfseo] Warning: crawl timed out after {_POLL_TIMEOUT}s. Using partial results ({crawled_so_far} pages crawled).")
 
         # ----------------------------------------------------------------
         # 3. Map summary aggregate counts
@@ -312,7 +317,7 @@ def gather_site_crawl_facts_dataforseo(
         #    avg_word_count, avg_text_to_html_ratio, click_depth metrics,
         #    missing_canonical, multiple_h1, orphan_pages, hreflang
         # ----------------------------------------------------------------
-        print(f"[dfseo] Fetching per-page data ...")
+        plog(f"[dfseo] Fetching per-page data ...")
 
         word_counts = []
         text_ratios = []
@@ -428,7 +433,7 @@ def gather_site_crawl_facts_dataforseo(
         result["crawl_scope_note"] = scope
 
         result["crawl_ran"] = True
-        print(
+        plog(
             f"[dfseo] Done. {result['pages_crawled']} pages, "
             f"health score: {result['site_health_score']}, "
             f"broken links: {result['broken_internal_urls']}, "
@@ -437,6 +442,6 @@ def gather_site_crawl_facts_dataforseo(
 
     except Exception as e:
         result["crawl_error"] = str(e)
-        print(f"[dfseo] ERROR: {e}")
+        plog(f"[dfseo] ERROR: {e}")
 
     return result

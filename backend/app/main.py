@@ -4,6 +4,8 @@ import threading
 import uuid
 from datetime import datetime
 
+from app.log_ctx import _ctx, plog
+
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -54,6 +56,8 @@ class AuditJob(Base):
     result = Column(Text, nullable=True)         # JSON string of full report
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
 
 
 Base.metadata.create_all(bind=engine)
@@ -62,31 +66,35 @@ Base.metadata.create_all(bind=engine)
 # Background task
 def run_audit_job(job_id: str, url: str, company_name: str, competitors: list):
     """Runs the full audit pipeline and updates the DB record when done."""
+    _ctx.job_id = job_id[:8]
     _audit_semaphore.acquire()
     db = SessionLocal()
     try:
         # Mark as processing
         job = db.query(AuditJob).filter(AuditJob.id == job_id).first()
         if not job:
-            print(f"[audit] ERROR: job {job_id} not found in DB, aborting.")
+            plog("[audit] ERROR: job not found in DB, aborting.")
             return
         job.status = "processing"
+        job.started_at = datetime.utcnow()
         db.commit()
 
         # Run the pipeline
-        result = run_audit(url, company_name, competitors)
+        result = run_audit(job_id, url, company_name, competitors)
 
         # Save completed result
         job = db.query(AuditJob).filter(AuditJob.id == job_id).first()
         job.status = "completed"
+        job.completed_at = datetime.utcnow()
         job.result = json.dumps(result)
         db.commit()
 
     except Exception as e:
-        print(f"[audit] ERROR for job {job_id}: {e}")
+        plog(f"[audit] ERROR: {e}")
         job = db.query(AuditJob).filter(AuditJob.id == job_id).first()
         if job:
             job.status = "error"
+            job.completed_at = datetime.utcnow()
             job.error_message = str(e)
             db.commit()
     finally:
