@@ -102,7 +102,21 @@ def run_audit_job(job_id: str, url: str, company_name: str, competitors: list):
         _audit_semaphore.release()
 
 
-# Startup cleanup
+# Startup checks
+@app.on_event("startup")
+def validate_env():
+    required = [
+        "OPENAI_API_KEY",
+        "DATAFORSEO_LOGIN",
+        "DATAFORSEO_PASSWORD",
+        "YOUTUBE_API_KEY",
+        "GOOGLE_PAGESPEED_API_KEY",
+    ]
+    missing = [k for k in required if not os.environ.get(k)]
+    if missing:
+        raise RuntimeError(f"Missing required environment variables: {', '.join(missing)}")
+
+
 @app.on_event("startup")
 def cleanup_stale_jobs():
     db = SessionLocal()

@@ -25,6 +25,9 @@ power/
 
 # client documents
 *.pdf
+*.json
+*.txt
+test_*.py
 
 # misc
 dist/

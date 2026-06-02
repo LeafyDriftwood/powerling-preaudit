@@ -40,10 +40,12 @@ interface Facts {
     lcr_required: number;
     available_languages: string[];
     required_languages: string[];
+    crawler_ran?: boolean;
     hreflang_present: boolean;
     hreflang_x_default_present: boolean;
     geographic_presence?: string;
     mixed_language_issues?: unknown[];
+    mixed_language_affected_locales_count?: number;
     estimated_monthly_traffic?: string;
     top_traffic_countries?: string[];
   };
@@ -60,10 +62,12 @@ interface Facts {
     pages_crawled?: number;
     psi_ran?: boolean;
     crawl_ran?: boolean;
+    crawl_error?: string;
   };
   pillar_3_accessibility: {
     wcag_level_claimed?: string;
     has_accessibility_statement?: boolean;
+    accessibility_statement_url?: string;
     has_cookie_banner?: boolean;
     primary_region?: string;
     applicable_regulations?: string[];
@@ -348,6 +352,18 @@ export default function ResultPage() {
   const { facts, ui_content } = data;
   const p1 = facts.pillar_1_globalization;
   const p2 = facts.pillar_2_website_health;
+  const p2DataWarning =
+    p2.psi_ran === false && p2.crawl_ran === false
+      ? "Performance and crawl data could not be collected. Pillar 2 findings are based on limited information only."
+      : p2.crawl_ran === false && p2.crawl_error?.startsWith("Bot-blocked")
+      ? "Site health data unavailable — bot protection prevented the crawler from accessing this site. PSI scores above are unaffected."
+      : p2.crawl_ran === false && p2.crawl_error
+      ? `Crawl data unavailable: ${p2.crawl_error}`
+      : p2.psi_ran === false
+      ? "PageSpeed data could not be collected for this site."
+      : p2.crawl_ran !== false && p2.pages_crawled === 1
+      ? "Crawl limited to 1 page — metrics reflect the homepage only, not the full site."
+      : null;
   const p3 = facts.pillar_3_accessibility;
   const p4 = facts.pillar_4_online_reputation;
 
@@ -373,7 +389,7 @@ export default function ResultPage() {
             <div className="hidden md:block h-4 w-px bg-gray-200" />
             <div className="min-w-0">
               <span className="font-bold text-gray-900 truncate">{meta.company_name}</span>
-              <span className="text-gray-400 text-sm ml-2 truncate hidden lg:inline">{meta.url}</span>
+              <a href={meta.url} target="_blank" rel="noopener noreferrer" className="text-gray-400 text-sm ml-2 truncate hidden lg:inline hover:text-green-700 hover:underline">{meta.url}</a>
             </div>
           </div>
           <nav className="hidden md:flex items-center gap-1">
@@ -395,7 +411,7 @@ export default function ResultPage() {
         {/* Header */}
         <div>
           <h1 className="text-3xl font-bold text-gray-900">{meta.company_name}</h1>
-          <p className="text-gray-500 mt-1">{meta.url}</p>
+          <a href={meta.url} target="_blank" rel="noopener noreferrer" className="text-gray-500 mt-1 hover:text-green-700 hover:underline">{meta.url}</a>
           {meta.created_at && (
             <p className="text-gray-400 text-xs mt-1">
               Generated {new Date(meta.created_at).toLocaleDateString("en-US", {
@@ -454,20 +470,22 @@ export default function ResultPage() {
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div className="bg-gray-50 rounded-lg p-3">
                   <p className="text-xs text-gray-500 mb-1">Hreflang</p>
-                  <p className={`font-semibold ${p1.hreflang_present ? "text-green-600" : "text-red-600"}`}>
-                    {p1.hreflang_present ? "Present" : "Missing"}
-                  </p>
+                  {p1.crawler_ran === false
+                    ? <p className="font-semibold text-gray-400">N/A</p>
+                    : <p className={`font-semibold ${p1.hreflang_present ? "text-green-600" : "text-red-600"}`}>{p1.hreflang_present ? "Present" : "Missing"}</p>
+                  }
                 </div>
                 <div className="bg-gray-50 rounded-lg p-3">
                   <p className="text-xs text-gray-500 mb-1">x-default</p>
-                  <p className={`font-semibold ${p1.hreflang_x_default_present ? "text-green-600" : "text-red-600"}`}>
-                    {p1.hreflang_x_default_present ? "Present" : "Missing"}
-                  </p>
+                  {p1.crawler_ran === false
+                    ? <p className="font-semibold text-gray-400">N/A</p>
+                    : <p className={`font-semibold ${p1.hreflang_x_default_present ? "text-green-600" : "text-red-600"}`}>{p1.hreflang_x_default_present ? "Present" : "Missing"}</p>
+                  }
                 </div>
                 <div className="bg-gray-50 rounded-lg p-3">
                   <p className="text-xs text-gray-500 mb-1">Mixed language issues</p>
-                  <p className={`font-semibold ${(p1.mixed_language_issues?.length ?? 0) > 0 ? "text-red-600" : "text-green-600"}`}>
-                    {p1.mixed_language_issues?.length ?? 0} locale(s)
+                  <p className={`font-semibold ${((p1.mixed_language_affected_locales_count != null ? p1.mixed_language_affected_locales_count : (p1.mixed_language_issues?.length ?? 0)) > 0) ? "text-red-600" : "text-green-600"}`}>
+                    {p1.mixed_language_affected_locales_count != null ? p1.mixed_language_affected_locales_count : (p1.mixed_language_issues?.length ?? 0)} locale(s)
                   </p>
                 </div>
                 <div className="bg-gray-50 rounded-lg p-3">
@@ -516,8 +534,15 @@ export default function ResultPage() {
                 <p className="text-sm text-gray-400 italic">PageSpeed data not available.</p>
               )}
 
+              {p2DataWarning && (
+                <div className="flex items-start gap-2 rounded-lg bg-yellow-50 border border-yellow-200 px-3 py-2 text-xs text-yellow-800 mb-3">
+                  <span className="mt-0.5">⚠</span>
+                  <span>{p2DataWarning}</span>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-3 text-sm">
-                {p2.site_health_score !== undefined && (
+                {p2.crawl_ran !== false && p2.site_health_score !== undefined && (
                   <div className="bg-gray-50 rounded-lg p-3">
                     <p className="text-xs text-gray-500 mb-1">Site health score</p>
                     <p className={`font-bold text-lg ${scoreColor(p2.site_health_score)}`}>{p2.site_health_score}/100</p>
@@ -529,7 +554,7 @@ export default function ResultPage() {
                     <p className="font-semibold text-gray-700">{p2.lcp_mobile}</p>
                   </div>
                 )}
-                {p2.broken_internal_urls !== undefined && (
+                {p2.crawl_ran !== false && p2.broken_internal_urls !== undefined && (
                   <div className="bg-gray-50 rounded-lg p-3">
                     <p className="text-xs text-gray-500 mb-1">Broken links</p>
                     <p className={`font-semibold ${p2.broken_internal_urls > 0 ? "text-red-600" : "text-green-600"}`}>
@@ -537,7 +562,7 @@ export default function ResultPage() {
                     </p>
                   </div>
                 )}
-                {p2.missing_meta_descriptions !== undefined && (
+                {p2.crawl_ran !== false && p2.missing_meta_descriptions !== undefined && (
                   <div className="bg-gray-50 rounded-lg p-3">
                     <p className="text-xs text-gray-500 mb-1">Missing meta desc.</p>
                     <p className={`font-semibold ${p2.missing_meta_descriptions > 0 ? "text-yellow-600" : "text-green-600"}`}>
@@ -566,13 +591,19 @@ export default function ResultPage() {
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div className="bg-gray-50 rounded-lg p-3">
                   <p className="text-xs text-gray-500 mb-1">WCAG level</p>
-                  <p className="font-semibold text-gray-700">{p3.wcag_level_claimed ?? "Undeclared"}</p>
+                  {p3.wcag_level_claimed && p3.wcag_level_claimed !== "undeclared"
+                    ? <p className="font-semibold text-gray-700">{p3.wcag_level_claimed}</p>
+                    : p3.accessibility_statement_url
+                    ? <a href={p3.accessibility_statement_url} target="_blank" rel="noopener noreferrer" className="font-semibold text-amber-600 hover:underline text-xs">Undeclared — verify in statement</a>
+                    : <p className="font-semibold text-gray-400">Undeclared</p>
+                  }
                 </div>
                 <div className="bg-gray-50 rounded-lg p-3">
                   <p className="text-xs text-gray-500 mb-1">Accessibility statement</p>
-                  <p className={`font-semibold ${p3.has_accessibility_statement ? "text-green-600" : "text-red-600"}`}>
-                    {p3.has_accessibility_statement ? "Yes" : "No"}
-                  </p>
+                  {p3.has_accessibility_statement && p3.accessibility_statement_url
+                    ? <a href={p3.accessibility_statement_url} target="_blank" rel="noopener noreferrer" className="font-semibold text-green-600 hover:underline">Yes</a>
+                    : <p className={`font-semibold ${p3.has_accessibility_statement ? "text-green-600" : "text-red-600"}`}>{p3.has_accessibility_statement ? "Yes" : "No"}</p>
+                  }
                 </div>
                 <div className="bg-gray-50 rounded-lg p-3">
                   <p className="text-xs text-gray-500 mb-1">Cookie consent</p>
@@ -684,7 +715,7 @@ export default function ResultPage() {
                           {hasCount ? (
                             <span className="font-semibold text-gray-800">{display}</span>
                           ) : (
-                            <span className="text-xs text-gray-400">View page →</span>
+                            <a href={d.url} target="_blank" rel="noopener noreferrer" className="text-xs text-gray-400 hover:text-green-700 hover:underline">View page →</a>
                           )}
                         </div>
                       );

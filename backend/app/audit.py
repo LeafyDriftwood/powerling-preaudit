@@ -29,7 +29,9 @@ API strategy:
 import json
 import os
 import re
+import socket
 from concurrent.futures import ThreadPoolExecutor
+from urllib.parse import urlparse
 from openai import OpenAI
 
 try:
@@ -42,6 +44,31 @@ client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
 # Helper
 
+def _strip_citations(obj):
+    """Recursively strip GPT web-search citation links ([text](url)) from all string values."""
+    if isinstance(obj, str):
+        return re.sub(r'\s*\(\[[^\]]*\]\([^)]*\)\)', '', obj).strip()
+    if isinstance(obj, dict):
+        return {k: _strip_citations(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_strip_citations(i) for i in obj]
+    return obj
+
+
+def _normalize_lang_codes(data: dict) -> dict:
+    """Uppercase available_languages entries that look like ISO codes; drop full names."""
+    if not isinstance(data, dict):
+        return data
+    for field in ("available_languages", "required_languages"):
+        langs = data.get(field)
+        if isinstance(langs, list):
+            data[field] = [
+                l.upper() for l in langs
+                if isinstance(l, str) and re.match(r'^[a-zA-Z]{2}(-[a-zA-Z]{2,4})?$', l)
+            ]
+    return data
+
+
 def _parse_json(text: str, label: str = "") -> dict:
     """Parse JSON from a model response, stripping markdown fences if present."""
     text = text.strip()
@@ -49,7 +76,7 @@ def _parse_json(text: str, label: str = "") -> dict:
     text = re.sub(r"\s*```$", "", text)
     text = text.strip()
     try:
-        return json.loads(text)
+        return _normalize_lang_codes(_strip_citations(json.loads(text)))
     except json.JSONDecodeError as e:
         tag = f"[{label}] " if label else ""
         plog(f"{tag}JSON parse error: {e}")
@@ -60,14 +87,14 @@ def _parse_json(text: str, label: str = "") -> dict:
             repaired = repair_json(text)
             result = json.loads(repaired)
             plog(f"{tag}Recovered via json_repair.")
-            return result
+            return _normalize_lang_codes(_strip_citations(result))
         except Exception:
             pass
         # Try to extract a JSON object from within the text (handles preamble/postamble)
         match = re.search(r'\{.*\}', text, re.DOTALL)
         if match:
             plog(f"{tag}Attempting extraction from embedded JSON block...")
-            return json.loads(match.group())
+            return _normalize_lang_codes(_strip_citations(json.loads(match.group())))
         raise
 
 
@@ -216,10 +243,11 @@ are needed. Do not return an empty array.
 STEP 3 - Determine Available Languages (AL) from the website:
 AL counts ONLY languages where the FULL user experience is available:
 navigation, product catalog, cart, checkout, and customer service all in that language.
+Count official brand-operated ccTLD or regional domains (e.g. company.de, company.co.jp) as available languages — these are part of the brand's digital footprint even if hosted separately.
 Do NOT count: partial translations, footer-only language switches, blog-only languages,
-or third-party subdomains not part of the main site.
+or third-party sites not operated by the company itself.
 Note the type of language selector (dropdown, flags, country selector, subdomain, path prefix, etc.).
-Also check: are hreflang tags present on the website?
+Also check: are hreflang tags present on the website? If yes, is there an x-default hreflang tag?
 
 STEP 4 - Check for mixed-language UX issues:
 For example: untranslated CTAs appearing on non-matching locale pages, navigation in the wrong language,
@@ -240,13 +268,17 @@ Do not include URLs, markdown links, or citation text in the value.
 
 Return ONLY a valid JSON object with no markdown fences.
 IMPORTANT: The JSON below shows field names and value types ONLY. Do NOT copy these example values — replace every value with your actual research findings above.
+hreflang_present and hreflang_x_default_present must be JSON booleans (true or false), never null or a string.
+For available_languages and required_languages, use ISO language codes (e.g. EN, FR, ZH-CN, PT-BR). Never use full language names.
 {{
   "available_languages": ["XX", "XX"],
   "language_selector_type": "[your actual finding]",
   "geographic_presence": "[your actual finding: regions and country count]",
   "required_languages": ["XX", "XX"],
-  "hreflang_present": false,
+  "hreflang_present": null,
+  "hreflang_x_default_present": null,
   "mixed_language_ux_issues": "[brief plain-text summary, or 'None detected']",
+  "mixed_language_affected_locales_count": 0,
   "translation_quality_notes": "[your actual finding]",
   "lcr_notes": "[your actual finding]",
   "estimated_monthly_traffic": null,
@@ -382,13 +414,22 @@ def gather_competitor_benchmark_data(url: str, crawler_available_languages: list
     else:
         lang_note = ""
 
+    _lang_question_suffix = (
+        " (ALREADY CONFIRMED ABOVE - use those values)"
+        if crawler_available_languages is not None
+        else (
+            " Count official brand-operated ccTLD domains (e.g. company.fr, company.de, company.co.jp)"
+            " as separate available languages — these are part of the brand's digital footprint"
+            " even if hosted on a different domain."
+        )
+    )
     comp_prompt = f"""
 Research the website {url} to gather competitive benchmark data. Search online for accurate, current information.
 
 {lang_note}Find the following, with actual numbers wherever possible:
 
 GLOBALIZATION:
-1. What languages are available on the website? Only count full UX languages (not partial translations).{' (ALREADY CONFIRMED ABOVE - use those values)' if crawler_available_languages is not None else ''}
+1. What languages are available on the website? Only count full UX languages (not partial translations).{_lang_question_suffix}
 2. Search for the company's geographic presence (countries, regions, key markets). Based on that footprint, estimate how many languages would justify a full translated UX — counting only languages where there is a substantial customer segment, not every language in every country of operation. Return this as required_languages_count (integer).
 3. Brief description of global reach (number of countries, key regions).
 4. Search Semrush (semrush.com/website/[domain]/overview/) for monthly organic traffic. Return a clean string like "9.1M (Semrush, Mar 2026)". If Semrush has no data for this domain, return null.
@@ -410,6 +451,7 @@ ONLINE REPUTATION:
 
 Return ONLY a valid JSON object with no markdown fences.
 IMPORTANT: The JSON below shows field names and value types ONLY. Do NOT copy these example values — replace every value with your actual research findings above.
+For available_languages, use ISO language codes (e.g. EN, FR, ZH-CN, PT-BR). Never use full language names.
 {{
   "company_name": "[actual company name]",
   "available_languages": ["XX", "XX"],
@@ -485,7 +527,7 @@ def build_facts_pack(
 
     # Compute LCR and tier for each competitor
     for cf in competitor_facts:
-        comp_required = cf.get("required_languages_count") or len(cf.get("required_languages", []))
+        comp_required = int(cf.get("required_languages_count") or 0) or len(cf.get("required_languages", []))
         comp_available = len(cf.get("available_languages", []))
         cf["lcr_score"] = round((comp_available / comp_required) * 100, 1) if comp_required else 0.0
         cf["lcr_tier"] = compute_lcr_tier(cf["lcr_score"])
@@ -554,6 +596,15 @@ def generate_ui_content(facts: dict) -> dict:
         else "PageSpeed data not available"
     )
 
+    _p2_data_note = ""
+    if p2.get("psi_ran") is False and p2.get("crawl_ran") is False:
+        _p2_data_note = (
+            "\nNOTE: No PSI or crawl data was collected for this site. "
+            "Do not fabricate performance scores or crawl metrics. "
+            "Base findings only on the HTTPS, HSTS, schema, and sitemap values provided. "
+            "If data is insufficient for 3 findings, produce fewer rather than padding with generic statements."
+        )
+
     prompt = f"""You are a senior digital audit expert writing a concise, punchy executive dashboard for a pre-audit report.
 
 Company: {company_name}
@@ -564,13 +615,13 @@ PILLAR 1 - GLOBALIZATION:
 - Required languages: {p1.get('required_languages', [])}
 - LCR score: {p1.get('lcr_score', 0)}% ({p1.get('lcr_tier', 'N/A')})
 - Geographic presence: {p1.get('geographic_presence', 'N/A')}
-- Hreflang: {'Present' if p1.get('hreflang_present') else 'Missing'}
-- x-default: {'Present' if p1.get('hreflang_x_default_present') else 'Missing'}
+- Hreflang: {'Present' if p1.get('hreflang_present') else 'Missing' if p1.get('crawler_ran') else 'Unknown (crawler did not run)'}
+- x-default: {'Present' if p1.get('hreflang_x_default_present') else 'Missing' if p1.get('crawler_ran') else 'Unknown (crawler did not run)'}
 - Mixed language issues: {ml_summary}
 - Translation quality: {p1.get('translation_quality_notes', 'N/A')}
 - Regional/market-specific sites: {p1.get('regional_sites', [])}
 
-PILLAR 2 - WEBSITE HEALTH:
+PILLAR 2 - WEBSITE HEALTH:{_p2_data_note}
 - {psi_summary}
 - SEO score (mobile): {p2.get('seo_score_mobile', 'N/A')}, Accessibility score (mobile): {p2.get('accessibility_score_mobile', 'N/A')}
 - LCP mobile: {p2.get('lcp_mobile', 'N/A')}, CLS: {p2.get('cls_mobile', 'N/A')}
@@ -708,15 +759,30 @@ def run_audit(job_id: str, url: str, company_name: str, competitors: list) -> di
         plog(f"[audit] WARNING: Could not import pillar4_gather: {e}")
 
     # --- Nested competitor full-chain helper (Playwright crawl + GPT on same thread) ---
+    def _dns_resolves(raw_url: str) -> bool:
+        try:
+            hostname = urlparse(raw_url).hostname or ""
+            socket.getaddrinfo(hostname, None)
+            return True
+        except socket.gaierror:
+            return False
+
     def _run_competitor_full(comp_url: str) -> dict:
         _ctx.job_id = job_id[:8]
+        if not _dns_resolves(comp_url):
+            plog(f"[audit]   Comp DNS lookup failed ({comp_url}) — skipping.")
+            return {"company_name": comp_url, "available_languages": [], "required_languages": []}
         comp_langs = None
         if gather_pillar1_facts:
             try:
                 result = gather_pillar1_facts(comp_url)
                 if result.get("crawler_ran"):
                     comp_langs = result.get("available_languages")
-                    plog(f"[audit]   Comp crawler OK ({comp_url}): {comp_langs}")
+                    if len(comp_langs or []) <= 1:
+                        plog(f"[audit]   Comp crawler returned <=1 locale ({comp_url}) — GPT will fill in.")
+                        comp_langs = None
+                    else:
+                        plog(f"[audit]   Comp crawler OK ({comp_url}): {comp_langs}")
                 else:
                     plog(f"[audit]   Comp crawler failed ({comp_url}): {result.get('crawler_error', 'unknown')}")
             except Exception as e:
@@ -739,6 +805,9 @@ def run_audit(job_id: str, url: str, company_name: str, competitors: list) -> di
     if _gather_p2:
         def _run_pillar2():
             _ctx.job_id = job_id[:8]
+            if not _dns_resolves(url):
+                plog(f"[p2] DNS lookup failed for {urlparse(url).hostname} — skipping PSI and DataForSEO.")
+                return {"psi_ran": False, "crawl_ran": False, "crawl_error": "DNS resolution failed"}
             return _gather_p2(url, max_crawl_pages=200)
         fut_pillar2 = pool.submit(_run_pillar2)
     else:
@@ -760,8 +829,8 @@ def run_audit(job_id: str, url: str, company_name: str, competitors: list) -> di
                     # JS-rendering race or was blocked — drop available_languages so GPT fills
                     # it in, but keep hreflang/locale_urls/cookie data which are still valid.
                     if len(client_crawler.get("available_languages", [])) <= 1:
-                        plog("[audit]   Crawler returned <=1 locale — dropping available_languages, GPT will fill in.")
-                        client_crawler.pop("available_languages", None)
+                        plog("[audit]   Crawler returned <=1 locale — treating as failed, GPT will research languages.")
+                        client_crawler = None
                     if client_crawler and gather_mixed_language_issues:
                         plog("[audit]   Running GPT-5 mixed language check...")
                         ml_issues = gather_mixed_language_issues(
@@ -770,10 +839,15 @@ def run_audit(job_id: str, url: str, company_name: str, competitors: list) -> di
                         client_crawler["mixed_language_issues"] = ml_issues
                         plog(f"[audit]   Mixed language issues found: {len(ml_issues)}")
                 else:
-                    plog(f"[audit]   Crawler did not run: {client_crawler.get('crawler_error')}")
+                    _crawler_error = client_crawler.get("crawler_error", "")
+                    plog(f"[audit]   Crawler did not run: {_crawler_error}")
+                    if "ERR_NAME_NOT_RESOLVED" in _crawler_error:
+                        raise ValueError(f"Domain does not exist or could not be reached: {url}")
                     client_crawler = None
             else:
                 plog("[audit]   Crawler not available, skipping.")
+        except ValueError:
+            raise
         except Exception as e:
             plog(f"[audit]   Crawler exception: {e}")
             client_crawler = None
@@ -802,6 +876,7 @@ def run_audit(job_id: str, url: str, company_name: str, competitors: list) -> di
             pillar4_data = {}
 
         # Merge crawler-only fields into pillar1_data (these never come from GPT)
+        pillar1_data["crawler_ran"] = bool(client_crawler and client_crawler.get("crawler_ran"))
         if client_crawler and client_crawler.get("crawler_ran"):
             pillar1_data["locale_urls"] = client_crawler.get("locale_urls", {})
             pillar1_data["hreflang_tags"] = client_crawler.get("hreflang_tags", [])

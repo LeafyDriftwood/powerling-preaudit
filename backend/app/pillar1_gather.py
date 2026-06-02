@@ -220,10 +220,21 @@ def _detect_cookie_banner(page) -> dict:
             { name: "Didomi",     patterns: ["sdk.privacy-center.org", "didomi.io"] },
             { name: "TrustArc",   patterns: ["consent.trustarc.com", "trustarc.com/notice"] },
             { name: "CookieYes",  patterns: ["cdn-cookieyes.com", "app.cookieyes.com"] },
-            { name: "Osano",      patterns: ["cmp.osano.com"] },
-            { name: "Axeptio",    patterns: ["static.axept.io"] },
-            { name: "Iubenda",    patterns: ["cdn.iubenda.com/cs/iubenda_cs.js"] },
-            { name: "Quantcast",  patterns: ["cmp.quantcast.com"] },
+            { name: "Osano",        patterns: ["cmp.osano.com"] },
+            { name: "Axeptio",      patterns: ["static.axept.io"] },
+            { name: "Iubenda",      patterns: ["cdn.iubenda.com/cs/iubenda_cs.js"] },
+            { name: "Quantcast",    patterns: ["cmp.quantcast.com"] },
+            { name: "Usercentrics",   patterns: ["app.usercentrics.eu", "privacy-proxy.usercentrics.eu"] },
+            { name: "Termly",         patterns: ["app.termly.io"] },
+            { name: "CookieScript",   patterns: ["cookiescriptcdn.pro", "cookie-script.com"] },
+            { name: "CookieInfo",     patterns: ["policy.app.cookieinformation.com", "cookieinformation.com"] },
+            { name: "Complianz",      patterns: ["cdn.complianz.io", "complianz.io"] },
+            { name: "CookieFirst",    patterns: ["consent.cookiefirst.com", "cookiefirst.com"] },
+            { name: "Consentmanager", patterns: ["cdn.consentmanager.net", "consentmanager.net"] },
+            { name: "Pandectes",      patterns: ["pandectes.io"] },
+            { name: "Sourcepoint",    patterns: ["sourcepoint.com", "sp-prod.net", "cdn.privacy-mgmt.com"] },
+            { name: "Civic",          patterns: ["cc.cdn.civiccomputing.com", "cookiecontrol.civiccomputing.com"] },
+            { name: "PiwikPRO",       patterns: ["piwik.pro"] },
         ];
         const allScripts = Array.from(document.querySelectorAll('script[src]')).map(s => s.src || '');
         for (const sig of scriptSignals) {
@@ -232,6 +243,12 @@ def _detect_cookie_banner(page) -> dict:
                     return { detected: true, provider: sig.name };
                 }
             }
+        }
+
+        // TrustArc newer UI: branding image loaded from consent.trustarc.com (no script tag)
+        const allImgSrcs = Array.from(document.querySelectorAll('img[src]')).map(s => s.src || '');
+        if (allImgSrcs.some(src => src.includes('consent.trustarc.com'))) {
+            return { detected: true, provider: 'TrustArc' };
         }
 
         // Check script id attributes (e.g. <script id="Cookiebot">)
@@ -264,7 +281,15 @@ def _detect_cookie_banner(page) -> dict:
         const windowSignals = [
             { name: "Cookiebot",  globals: ["Cookiebot", "CookieConsentDialog"] },
             { name: "OneTrust",   globals: ["OneTrust", "OptanonWrapper"] },
-            { name: "Didomi",     globals: ["Didomi", "__tcfapi"] },
+            { name: "Didomi",         globals: ["Didomi", "__tcfapi"] },
+            { name: "Usercentrics",   globals: ["UC_UI", "usercentrics"] },
+            { name: "Termly",         globals: ["termly"] },
+            { name: "CookieScript",   globals: ["CookieScript"] },
+            { name: "CookieInfo",     globals: ["CookieInformation"] },
+            { name: "Sourcepoint",    globals: ["_sp_"] },
+            { name: "Civic",          globals: ["CookieControl"] },
+            { name: "PiwikPRO",       globals: ["ppms"] },
+            { name: "Consentmanager", globals: ["cmp_id"] },
         ];
         for (const sig of windowSignals) {
             for (const g of sig.globals) {
@@ -274,17 +299,33 @@ def _detect_cookie_banner(page) -> dict:
             }
         }
 
+        // Tealium consent — utag is common as a tag manager, so check utag.gdpr specifically
+        if (window.utag && window.utag.gdpr !== undefined) {
+            return { detected: true, provider: "Tealium" };
+        }
+
         // --- Strategy 2: rendered DOM elements ---
         const domProviders = [
             { name: "OneTrust",   selectors: ["#onetrust-banner-sdk", ".onetrust-pc-dark-filter"] },
             { name: "Cookiebot",  selectors: ["#CybotCookiebotDialog", "[data-cookieconsent]"] },
             { name: "Didomi",     selectors: ["#didomi-host", ".didomi-popup-container"] },
-            { name: "TrustArc",   selectors: ["#truste-consent-track", ".truste_overlay"] },
+            { name: "TrustArc",   selectors: ["#truste-consent-track", ".truste_overlay", ".pdynamicbutton"] },
             { name: "CookieYes",  selectors: [".cky-consent-container", "#cky-consent"] },
             { name: "Osano",      selectors: [".osano-cm-window", ".osano-cm-widget"] },
             { name: "Axeptio",    selectors: ["#axeptio_overlay"] },
             { name: "Iubenda",    selectors: ["#iubenda-cs-banner"] },
-            { name: "Quantcast",  selectors: [".qc-cmp2-container"] },
+            { name: "Quantcast",    selectors: [".qc-cmp2-container"] },
+            { name: "Usercentrics",   selectors: ["#usercentrics-root", "[data-testid='uc-banner']"] },
+            { name: "Termly",         selectors: ["#termly-code-snippet-support", ".termly-styles-wrapper"] },
+            { name: "CookieScript",   selectors: ["#cookiescript_injected", ".cookiescript-banner"] },
+            { name: "CookieInfo",     selectors: ["#coiOverlay", ".coi-banner__wrapper"] },
+            { name: "Complianz",      selectors: [".cmplz-cookiebanner", "#cmplz-cookiebanner-container"] },
+            { name: "CookieFirst",    selectors: ["[data-cookiefirst-root]", "#cookiefirst-cookies-consent"] },
+            { name: "Consentmanager", selectors: ["#cmpbox", ".cmpbox"] },
+            { name: "Pandectes",      selectors: [".pandectes-banner", "#pandectes-banner"] },
+            { name: "Sourcepoint",    selectors: ["[id^='sp_message_container']", ".sp_choice_type_ACCEPT_ALL"] },
+            { name: "Civic",          selectors: ["#ccc", "#ccc-module"] },
+            { name: "PiwikPRO",       selectors: ["#ppms_cm_popup_overlay", ".ppms_cm_popup"] },
         ];
         for (const provider of domProviders) {
             for (const sel of provider.selectors) {
@@ -367,7 +408,18 @@ def gather_pillar1_facts(url: str) -> dict:
             page.set_default_timeout(15000)
 
             plog(f"[crawler] Loading {url} ...")
-            page.goto(url, wait_until="domcontentloaded")
+            try:
+                page.goto(url, wait_until="domcontentloaded")
+            except Exception as nav_err:
+                if "ERR_HTTP2_PROTOCOL_ERROR" in str(nav_err):
+                    plog(f"[crawler] HTTP/2 error, retrying with HTTP/1.1...")
+                    browser.close()
+                    browser = p.chromium.launch(headless=True, args=["--disable-http2"])
+                    page = browser.new_page()
+                    page.set_default_timeout(15000)
+                    page.goto(url, wait_until="domcontentloaded")
+                else:
+                    raise
 
             # Wait for hreflang tags to appear — JS frameworks (e.g. Next.js) may inject
             # them after domcontentloaded, so reading immediately can return 0 tags.
@@ -423,7 +475,7 @@ def gather_pillar1_facts(url: str) -> dict:
             # Give GTM-injected CMPs time to fire before checking the DOM.
             # Sites that load their CMP via GTM rather than a direct script tag
             # need a brief pause — without this they always appear as "no banner".
-            page.wait_for_timeout(2500)
+            page.wait_for_timeout(10000)
 
             cookie_info = _detect_cookie_banner(page)
             result["cookie_banner_detected"] = cookie_info.get("detected", False)
@@ -521,7 +573,7 @@ For each locale URL above:
 3. Quote the specific strings you found
 
 Only report genuine cross-language contamination. Ignore:
-- Brand names, product names, or proper nouns
+- Brand names, product names, proper nouns, or fashion terms. 
 - Technical strings (URLs, email addresses, code)
 - Content intentionally in another language (e.g. a quote or language-learning site)
 
@@ -600,6 +652,7 @@ Return an empty array if no issues are found. No markdown fences.
                 and isinstance(item.get("locale"), str)
                 and isinstance(item.get("page_url"), str)
                 and isinstance(item.get("language_hits"), list)
+                and len(item["language_hits"]) > 0
             )
         ]
     except Exception as e:

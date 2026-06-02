@@ -568,7 +568,23 @@ def gather_pillar2_facts(
 
     result["crawl_ran"] = crawl.get("crawl_ran", False)
     result["crawl_error"] = crawl.get("crawl_error")
-    if crawl.get("crawl_ran"):
+
+    # Detect bot-blocked DataForSEO crawl: either explicit Access Denied in H1,
+    # or crawled only 1 page with a 0 health score (blocked page served as homepage).
+    if result["crawl_ran"]:
+        _pages = crawl.get("pages_crawled") or 0
+        _health = crawl.get("site_health_score")
+        _h1s = result.get("h1_texts", [])
+        _blocked = (
+            (_pages <= 1 and _health == 0)
+            or any("access denied" in (h or "").lower() for h in _h1s)
+        )
+        if _blocked:
+            plog("[p2]   DataForSEO crawl appears bot-blocked — skipping health metrics.")
+            result["crawl_ran"] = False
+            result["crawl_error"] = "Bot-blocked: crawler was served a minimal or access-denied page"
+
+    if crawl.get("crawl_ran") and not result.get("crawl_error"):
         result["pages_crawled"] = crawl.get("pages_crawled")
         result["broken_internal_urls"] = crawl.get("broken_internal_urls")
         result["https_to_http_links"] = crawl.get("https_to_http_links")
