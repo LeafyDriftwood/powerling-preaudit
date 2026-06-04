@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { listAudits } from '@/lib/actions';
 
 interface AuditSummary {
   id: string;
@@ -49,14 +50,9 @@ export default function AuditListPage() {
   const [sortKey, setSortKey] = useState<SortKey>('created_at');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
-
   useEffect(() => {
     const fetchAudits = () =>
-      fetch(`${process.env.NEXT_PUBLIC_API_URL}/audits`)
-        .then(async (r) => {
-          if (!r.ok) throw new Error(`Server error: ${r.status}`);
-          return r.json();
-        })
+      listAudits()
         .then((data: AuditSummary[]) => {
           setAudits(data);
           setLoading(false);

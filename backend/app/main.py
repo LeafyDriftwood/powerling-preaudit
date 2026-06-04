@@ -2,6 +2,7 @@ import json
 import os
 import threading
 import uuid
+import resend
 from datetime import datetime
 
 from app.log_ctx import _ctx, plog
@@ -9,14 +10,17 @@ from app.log_ctx import _ctx, plog
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, BackgroundTasks, Form, HTTPException
+from fastapi import FastAPI, BackgroundTasks, Form, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import create_engine, event, Column, String, DateTime, Text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
 from .audit import run_audit
+from .auth import verify_token
 
+# resend for sending email notifs
+resend.api_key = os.environ.get("RESEND_API_KEY")
 
 app = FastAPI()
 
@@ -52,6 +56,7 @@ class AuditJob(Base):
     competitor_1 = Column(String, nullable=False)
     competitor_2 = Column(String, nullable=False)
     competitor_3 = Column(String, nullable=False)
+    submitted_by = Column(String, nullable=True)
     status = Column(String, default="pending")  # pending | processing | completed | error
     result = Column(Text, nullable=True)         # JSON string of full report
     error_message = Column(Text, nullable=True)
@@ -89,6 +94,18 @@ def run_audit_job(job_id: str, url: str, company_name: str, competitors: list):
         job.result = json.dumps(result)
         db.commit()
 
+        # send notification email via resend
+        try: 
+            r = resend.Emails.send({
+                "from": "onboarding@resend.dev",
+                "to": job.submitted_by,
+                "subject": "Your SEO audit is ready!",
+                "html": f"<p>Hi,</p><p>Your pre-audit for <strong>{company_name}</strong> is complete.</p><p><a href='{os.environ.get('APP_URL')}/audits/{job_id}/result'>View your report</a></p>"
+            })
+        except Exception as e:
+            plog(f"[audit] WARNING: failed to send notification email: {e}")
+
+
     except Exception as e:
         plog(f"[audit] ERROR: {e}")
         job = db.query(AuditJob).filter(AuditJob.id == job_id).first()
@@ -111,6 +128,9 @@ def validate_env():
         "DATAFORSEO_PASSWORD",
         "YOUTUBE_API_KEY",
         "GOOGLE_PAGESPEED_API_KEY",
+        "JWT_SECRET",
+        "RESEND_API_KEY",
+        "APP_URL",
     ]
     missing = [k for k in required if not os.environ.get(k)]
     if missing:
@@ -146,6 +166,7 @@ async def create_audit(
     competitor_1: str = Form(...),
     competitor_2: str = Form(...),
     competitor_3: str = Form(...),
+    submitted_by: str = Depends(verify_token),
 ):
     """Create a new audit job and start the pipeline in the background."""
     job_id = str(uuid.uuid4())
@@ -158,6 +179,7 @@ async def create_audit(
         competitor_1=competitor_1,
         competitor_2=competitor_2,
         competitor_3=competitor_3,
+        submitted_by=submitted_by,
         status="pending",
         created_at=datetime.utcnow(),
     )
@@ -182,7 +204,7 @@ async def create_audit(
 
 
 @app.get("/audits")
-def list_audits():
+def list_audits(submitted_by: str = Depends(verify_token)):
     """List all audit jobs, newest first."""
     db = SessionLocal()
     jobs = db.query(AuditJob).order_by(AuditJob.created_at.desc()).all()
@@ -200,7 +222,7 @@ def list_audits():
 
 
 @app.get("/audits/{job_id}")
-def get_audit(job_id: str):
+def get_audit(job_id: str, submitted_by: str = Depends(verify_token)):
     """Get audit job status and metadata."""
     db = SessionLocal()
     job = db.query(AuditJob).filter(AuditJob.id == job_id).first()
@@ -221,7 +243,7 @@ def get_audit(job_id: str):
 
 
 @app.get("/audits/{job_id}/result")
-def get_audit_result(job_id: str):
+def get_audit_result(job_id: str, submitted_by: str = Depends(verify_token)):
     """Get the full report for a completed audit."""
     db = SessionLocal()
     job = db.query(AuditJob).filter(AuditJob.id == job_id).first()

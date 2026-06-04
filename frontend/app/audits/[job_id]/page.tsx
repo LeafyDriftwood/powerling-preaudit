@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { getAuditDetails } from '@/lib/actions';
 
 interface AuditJob {
   id: string;
@@ -42,14 +43,7 @@ export default function StatusPage() {
   useEffect(() => {
     const fetchStatus = async () => {
       try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/audits/${job_id}`);
-        if (!response.ok) {
-          const err = await response.json().catch(() => ({}));
-          setError(err.detail || `Request failed (${response.status})`);
-          if (intervalRef.current) clearInterval(intervalRef.current);
-          return;
-        }
-        const data = await response.json();
+        const data = await getAuditDetails(job_id);
         setJob(data);
         if (data.status === 'completed' || data.status === 'error') {
           if (intervalRef.current) clearInterval(intervalRef.current);

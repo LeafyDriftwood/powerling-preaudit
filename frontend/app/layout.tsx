@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Toaster } from 'react-hot-toast';
 import Link from 'next/link';
+import { getSession } from '@/lib/session';
 import "./globals.css";
 
 const geistSans = Geist({
@@ -19,11 +20,14 @@ export const metadata: Metadata = {
   description: "Automated website pre-audit reports",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const session = await getSession();
+  const username = session.user?.identifier?.split('@')[0] ?? null;
+
   return (
     <html lang="en">
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased pt-14`}>
@@ -41,6 +45,15 @@ export default function RootLayout({
             >
               New Audit
             </Link>
+            {username && (
+              <>
+                <span className="text-gray-300">|</span>
+                <span className="text-sm text-gray-500">{username}</span>
+                <a href="/auth/logout" className="text-sm text-green-700 hover:text-green-800 font-semibold transition">
+                  Log out
+                </a>
+              </>
+            )}
           </div>
         </nav>
         {children}

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
+import { createAudit, listAudits } from '@/lib/actions';
 
 
 type HttpWarning = {
@@ -61,20 +62,11 @@ function WebsiteForm() {
       formData.append('competitor_2', cleanCompetitors[1]);
       formData.append('competitor_3', cleanCompetitors[2]);
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/audits`, {
-        method: 'POST',
-        body: formData,
-      });
-      const data = await response.json();
-      if (response.ok) {
-        toast.success("Audit started.", { duration: 3000 });
-        router.push(`/audits/${data.job_id}`);
-      } else {
-        toast.error(data.detail || "Failed to create audit job.");
-      }
+      const data = await createAudit(formData);
+      toast.success("Audit started.", { duration: 3000 });
+      router.push(`/audits/${data.job_id}`);
     } catch (error) {
-      console.error("Error:", error);
-      toast.error("Error submitting job");
+      toast.error(error instanceof Error ? error.message : "Error submitting job");
     }
   };
 
@@ -132,24 +124,21 @@ function WebsiteForm() {
 
   const checkDuplicateAndSubmit = async (cleanUrl: string, cleanCompanyName: string, cleanCompetitors: string[]) => {
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/audits`);
-      if (res.ok) {
-        const jobs: { id: string; url: string; status: string; created_at: string }[] = await res.json();
-        const existing = jobs.find(j =>
-          ['completed', 'processing', 'pending'].includes(j.status) &&
-          stripScheme(j.url.toLowerCase()) === stripScheme(cleanUrl.toLowerCase())
-        );
-        if (existing) {
-          setDuplicateWarning({
-            job_id: existing.id,
-            status: existing.status as DuplicateWarning['status'],
-            created_at: existing.created_at,
-            cleanUrl,
-            cleanCompanyName,
-            cleanCompetitors,
-          });
-          return;
-        }
+      const jobs: { id: string; url: string; status: string; created_at: string }[] = await listAudits();
+      const existing = jobs.find(j =>
+        ['completed', 'processing', 'pending'].includes(j.status) &&
+        stripScheme(j.url.toLowerCase()) === stripScheme(cleanUrl.toLowerCase())
+      );
+      if (existing) {
+        setDuplicateWarning({
+          job_id: existing.id,
+          status: existing.status as DuplicateWarning['status'],
+          created_at: existing.created_at,
+          cleanUrl,
+          cleanCompanyName,
+          cleanCompetitors,
+        });
+        return;
       }
     } catch {
       // non-critical — proceed if check fails

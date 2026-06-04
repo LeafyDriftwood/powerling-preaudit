@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import { getAuditDetails, getAuditResult } from '@/lib/actions';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -304,16 +305,9 @@ export default function ResultPage() {
   const [showRaw, setShowRaw] = useState(false);
 
   useEffect(() => {
-    const base = process.env.NEXT_PUBLIC_API_URL;
     Promise.all([
-      fetch(`${base}/audits/${job_id}`).then(async (r) => {
-        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || `Error ${r.status}`);
-        return r.json();
-      }),
-      fetch(`${base}/audits/${job_id}/result`).then(async (r) => {
-        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || `Error ${r.status}`);
-        return r.json();
-      }),
+      getAuditDetails(job_id),
+      getAuditResult(job_id),
     ])
       .then(([metaData, resultData]) => {
         setMeta({ company_name: metaData.company_name, url: metaData.url, created_at: metaData.created_at });
