@@ -35,6 +35,18 @@ COMMON_LANG_CODES = {
     "VI", "ZH",
 }
 
+# Genuine language variants where region changes translation content (not geo-routing).
+# Only these are preserved as distinct entries in available_languages.
+KNOWN_LANGUAGE_VARIANTS = {
+    "ZH-CN", "ZH-TW", "ZH-HK",
+    "PT-BR", "PT-PT",
+    "FR-CA",
+    "EN-GB", "EN-US", "EN-AU",
+    "ES-MX", "ES-ES",
+    "NB-NO", "NN-NO",
+    "SR-LATN", "SR-CYRL",
+}
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -133,7 +145,8 @@ def _detect_locale_urls(page, base_url: str) -> dict:
         lang = tag.get("lang", "")
         href = tag.get("href", "")
         if lang and href and lang.lower() != "x-default":
-            code = _normalize_lang(lang)
+            full_code = lang.replace("_", "-").upper()
+            code = full_code if full_code in KNOWN_LANGUAGE_VARIANTS else _normalize_lang(lang)
             _add_locale_candidate(locale_urls, code, href)
 
     switcher_links = page.evaluate("""() => {
@@ -573,9 +586,10 @@ For each locale URL above:
 3. Quote the specific strings you found
 
 Only report genuine cross-language contamination. Ignore:
-- Brand names, product names, proper nouns, or fashion terms. 
+- Brand names, product names, proper nouns, or fashion terms.
 - Technical strings (URLs, email addresses, code)
 - Content intentionally in another language (e.g. a quote or language-learning site)
+- Language switcher labels — names of languages like "English", "Français", "Deutsch" appearing in navigation or a language picker are always intentional and must never be flagged
 
 Return a flat JSON array — one object per locale at the top level.
 Never nest locale objects inside language_hits.
