@@ -1,9 +1,11 @@
 import json
 import os
+import smtplib
 import threading
 import uuid
-import resend
 from datetime import datetime
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 
 from app.log_ctx import _ctx, plog
 
@@ -19,8 +21,24 @@ from sqlalchemy.orm import sessionmaker
 from .audit import run_audit
 from .auth import verify_token
 
-# resend for sending email notifs
-resend.api_key = os.environ.get("RESEND_API_KEY")
+
+def send_notification_email(to: str, company_name: str, job_id: str):
+    app_url = os.environ.get("APP_URL", "")
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = "Your SEO audit is ready!"
+    msg["From"] = "noreply@powerling.com"
+    msg["To"] = to
+    html = (
+        f"<p>Hi,</p>"
+        f"<p>Your pre-audit for <strong>{company_name}</strong> is complete.</p>"
+        f"<p><a href='{app_url}/audits/{job_id}/result'>View your report</a></p>"
+    )
+    msg.attach(MIMEText(html, "html"))
+    with smtplib.SMTP(os.environ["SMTP_HOST"], int(os.environ.get("SMTP_PORT", "587"))) as server:
+        server.starttls()
+        server.login(os.environ["SMTP_USER"], os.environ["SMTP_PASS"])
+        server.sendmail(msg["From"], [to], msg.as_string())
+
 
 app = FastAPI()
 
@@ -94,17 +112,11 @@ def run_audit_job(job_id: str, url: str, company_name: str, competitors: list):
         job.result = json.dumps(result)
         db.commit()
 
-        # send notification email via resend
-        try: 
-            r = resend.Emails.send({
-                "from": "onboarding@resend.dev",
-                "to": job.submitted_by,
-                "subject": "Your SEO audit is ready!",
-                "html": f"<p>Hi,</p><p>Your pre-audit for <strong>{company_name}</strong> is complete.</p><p><a href='{os.environ.get('APP_URL')}/audits/{job_id}/result'>View your report</a></p>"
-            })
+        # send email to notify the user
+        try:
+            send_notification_email(job.submitted_by, company_name, job_id)
         except Exception as e:
             plog(f"[audit] WARNING: failed to send notification email: {e}")
-
 
     except Exception as e:
         plog(f"[audit] ERROR: {e}")
@@ -129,8 +141,10 @@ def validate_env():
         "YOUTUBE_API_KEY",
         "GOOGLE_PAGESPEED_API_KEY",
         "JWT_SECRET",
-        "RESEND_API_KEY",
         "APP_URL",
+        "SMTP_HOST",
+        "SMTP_USER",
+        "SMTP_PASS",
     ]
     missing = [k for k in required if not os.environ.get(k)]
     if missing:

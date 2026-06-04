@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { getAuditDetails, getAuditResult } from '@/lib/actions';
+import { Popover, PopoverButton, PopoverPanel } from '@headlessui/react';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -45,7 +46,7 @@ interface Facts {
     hreflang_present: boolean;
     hreflang_x_default_present: boolean;
     geographic_presence?: string;
-    mixed_language_issues?: unknown[];
+    mixed_language_issues?: { locale: string; page_url: string; language_hits: { language: string; marker_strings_found: string[] }[] }[];
     mixed_language_affected_locales_count?: number;
     estimated_monthly_traffic?: string;
     top_traffic_countries?: string[];
@@ -113,8 +114,8 @@ interface ReportData {
 
 function scoreColor(score?: number) {
   if (score === undefined || score === null) return "text-gray-400";
-  if (score >= 70) return "text-green-600";
-  if (score >= 50) return "text-yellow-600";
+  if (score >= 76) return "text-green-600";
+  if (score >= 51) return "text-yellow-600";
   return "text-red-600";
 }
 
@@ -229,6 +230,20 @@ function Card({ children, className = "" }: { children: React.ReactNode; classNa
   );
 }
 
+function MetricPopover({ title, content }: { title: string; content: React.ReactNode }) {
+  return (
+    <Popover className="relative">
+      <PopoverButton className="w-5 h-5 rounded-full bg-gray-200 text-gray-500 text-xs font-bold flex items-center justify-center hover:bg-gray-300 hover:scale-110 hover:text-gray-700 transition-all focus:outline-none cursor-pointer select-none">
+        ?
+      </PopoverButton>
+      <PopoverPanel className="absolute z-50 bottom-full right-0 mb-2 bg-white border border-gray-200 rounded-xl shadow-lg p-4" style={{ width: '320px' }}>
+        <p className="text-sm font-semibold text-gray-800 mb-1.5">{title}</p>
+        <p className="text-xs text-gray-500 leading-relaxed">{content}</p>
+      </PopoverPanel>
+    </Popover>
+  );
+}
+
 function CompetitorTable({ clientName, p1, competitors }: {
   clientName: string;
   p1: Facts["pillar_1_globalization"];
@@ -251,7 +266,7 @@ function CompetitorTable({ clientName, p1, competitors }: {
         <thead>
           <tr className="bg-gray-50 border-b border-gray-200">
             <th className="text-left px-5 py-3 font-semibold text-gray-600">Company</th>
-            <th className="text-left px-5 py-3 font-semibold text-gray-600">LCR Score</th>
+            <th className="text-left px-5 py-3 font-semibold text-gray-600"><abbr title="Language Coverage Rate">LCR Score</abbr></th>
             <th className="text-left px-5 py-3 font-semibold text-gray-600">Tier</th>
             <th className="text-left px-5 py-3 font-semibold text-gray-600">Languages</th>
           </tr>
@@ -463,21 +478,60 @@ export default function ResultPage() {
 
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div className="bg-gray-50 rounded-lg p-3">
-                  <p className="text-xs text-gray-500 mb-1">Hreflang</p>
+                  <div className="flex items-center justify-between mb-1">
+                    <p className="text-xs text-gray-500">Hreflang</p>
+                    <MetricPopover title="Hreflang tags" content="HTML tags that tell search engines which language and region version of a page to serve. Missing hreflang tags hurt international SEO ranking for multilingual sites." />
+                  </div>
                   {p1.crawler_ran === false
                     ? <p className="font-semibold text-gray-400">N/A</p>
                     : <p className={`font-semibold ${p1.hreflang_present ? "text-green-600" : "text-red-600"}`}>{p1.hreflang_present ? "Present" : "Missing"}</p>
                   }
                 </div>
                 <div className="bg-gray-50 rounded-lg p-3">
-                  <p className="text-xs text-gray-500 mb-1">x-default</p>
+                  <div className="flex items-center justify-between mb-1">
+                    <p className="text-xs text-gray-500">x-default</p>
+                    <MetricPopover title="x-default Hreflang" content="A special hreflang tag that designates the fallback page for users whose language or region doesn't match any of the targeted locales. Without it, search engines have no default to fall back on." />
+                  </div>
                   {p1.crawler_ran === false
                     ? <p className="font-semibold text-gray-400">N/A</p>
                     : <p className={`font-semibold ${p1.hreflang_x_default_present ? "text-green-600" : "text-red-600"}`}>{p1.hreflang_x_default_present ? "Present" : "Missing"}</p>
                   }
                 </div>
                 <div className="bg-gray-50 rounded-lg p-3">
-                  <p className="text-xs text-gray-500 mb-1">Mixed language issues</p>
+                  <div className="flex items-center justify-between mb-1">
+                    <p className="text-xs text-gray-500">Mixed language issues</p>
+                    <MetricPopover
+                      title="Mixed language issues"
+                      content={(() => {
+                        const issues = p1.mixed_language_issues ?? [];
+                        const shown = issues.slice(0, 3);
+                        const extra = issues.length - 3;
+                        return (
+                          <div className="flex flex-col gap-2">
+                            <p>Pages where the visible text doesn't match the declared locale — confuses both users and search engines.</p>
+                            {issues.length > 0 && (
+                              <div>
+                                <p className="font-medium text-gray-700 mb-1">Found in this audit:</p>
+                                <ul className="flex flex-col gap-1">
+                                  {shown.map((issue, i) => {
+                                    const hit = issue.language_hits[0];
+                                    const examples = hit?.marker_strings_found?.slice(0, 2).join('", "');
+                                    return (
+                                      <li key={i} className="flex gap-1.5">
+                                        <span className="text-red-400 flex-shrink-0">•</span>
+                                        <span><span className="font-medium">{issue.locale}</span>{hit && <> — {hit.language} text: &ldquo;{examples}&rdquo;</>}</span>
+                                      </li>
+                                    );
+                                  })}
+                                  {extra > 0 && <li className="text-gray-400 italic">and {extra} more…</li>}
+                                </ul>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    />
+                  </div>
                   <p className={`font-semibold ${((p1.mixed_language_affected_locales_count != null ? p1.mixed_language_affected_locales_count : (p1.mixed_language_issues?.length ?? 0)) > 0) ? "text-red-600" : "text-green-600"}`}>
                     {p1.mixed_language_affected_locales_count != null ? p1.mixed_language_affected_locales_count : (p1.mixed_language_issues?.length ?? 0)} locale(s)
                   </p>
@@ -584,7 +638,7 @@ export default function ResultPage() {
             <Card className="p-5 flex flex-col gap-4">
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div className="bg-gray-50 rounded-lg p-3">
-                  <p className="text-xs text-gray-500 mb-1">WCAG level</p>
+                  <p className="text-xs text-gray-500 mb-1"><abbr title="Web Content Accessibility Guidelines">WCAG</abbr> level</p>
                   {p3.wcag_level_claimed && p3.wcag_level_claimed !== "undeclared"
                     ? <p className="font-semibold text-gray-700">{p3.wcag_level_claimed}</p>
                     : p3.accessibility_statement_url

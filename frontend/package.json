@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@headlessui/react": "^2.2.10",
     "iron-session": "^8.0.4",
     "jose": "^6.2.3",
     "next": "16.1.6",
