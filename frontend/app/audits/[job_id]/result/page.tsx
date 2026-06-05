@@ -238,7 +238,7 @@ function MetricPopover({ title, content }: { title: string; content: React.React
       </PopoverButton>
       <PopoverPanel className="absolute z-50 bottom-full right-0 mb-2 bg-white border border-gray-200 rounded-xl shadow-lg p-4" style={{ width: '320px' }}>
         <p className="text-sm font-semibold text-gray-800 mb-1.5">{title}</p>
-        <p className="text-xs text-gray-500 leading-relaxed">{content}</p>
+        <div className="text-xs text-gray-500 leading-relaxed">{content}</div>
       </PopoverPanel>
     </Popover>
   );
@@ -508,7 +508,7 @@ export default function ResultPage() {
                         const extra = issues.length - 3;
                         return (
                           <div className="flex flex-col gap-2">
-                            <p>Pages where the visible text doesn't match the declared locale — confuses both users and search engines.</p>
+                            <p>Pages where the visible text doesn't match the declared locale - confuses both users and search engines.</p>
                             {issues.length > 0 && (
                               <div>
                                 <p className="font-medium text-gray-700 mb-1">Found in this audit:</p>
@@ -592,13 +592,19 @@ export default function ResultPage() {
               <div className="grid grid-cols-2 gap-3 text-sm">
                 {p2.crawl_ran !== false && p2.site_health_score !== undefined && (
                   <div className="bg-gray-50 rounded-lg p-3">
-                    <p className="text-xs text-gray-500 mb-1">Site health score</p>
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-xs text-gray-500">Site health score</p>
+                      <MetricPopover title="Site health score" content="A composite score (0–100) measuring technical SEO quality - crawlability, broken links, missing meta tags, redirect chains, and more. Scores above 75 are healthy; below 50 indicate issues that hurt search visibility." />
+                    </div>
                     <p className={`font-bold text-lg ${scoreColor(p2.site_health_score)}`}>{p2.site_health_score}/100</p>
                   </div>
                 )}
                 {p2.lcp_mobile && (
                   <div className="bg-gray-50 rounded-lg p-3">
-                    <p className="text-xs text-gray-500 mb-1">LCP Mobile</p>
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-xs text-gray-500"><abbr title="Largest Contentful Paint">LCP</abbr> Mobile</p>
+                      <MetricPopover title="LCP Mobile" content="Largest Contentful Paint - the time it takes for the main content of a page to load on mobile. Google uses this as a Core Web Vital. Under 2.5s is good; over 4s is poor and hurts rankings." />
+                    </div>
                     <p className="font-semibold text-gray-700">{p2.lcp_mobile}</p>
                   </div>
                 )}
