@@ -27,7 +27,7 @@ except ImportError:
 
 openai_client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
-
+# Standard 2-letter language codes commonly used in locales, for quick validation of extracted codes.
 COMMON_LANG_CODES = {
     "AR", "BG", "CS", "DA", "DE", "EL", "EN", "ES", "ET", "FA", "FI", "FR",
     "HE", "HI", "HR", "HU", "ID", "IT", "JA", "KO", "LT", "LV", "MS", "NL",
@@ -35,8 +35,7 @@ COMMON_LANG_CODES = {
     "VI", "ZH",
 }
 
-# Genuine language variants where region changes translation content (not geo-routing).
-# Only these are preserved as distinct entries in available_languages.
+# Genuine language variants where region changes translation content. Only these are preserved as distinct entries in available_languages.
 KNOWN_LANGUAGE_VARIANTS = {
     "ZH-CN", "ZH-TW", "ZH-HK",
     "PT-BR", "PT-PT",
@@ -53,14 +52,17 @@ KNOWN_LANGUAGE_VARIANTS = {
 # ---------------------------------------------------------------------------
 
 def _normalize_lang(raw: str) -> str:
+    """Split delimeters, uppercase, and return base language code."""
     return re.split(r'[-_]', raw)[0].upper()
 
 
 def _is_probable_lang_code(code: str) -> bool:
+    """Heuristic check to filter out clearly invalid language codes. Not perfect but helps reduce noise from false positives."""
     return bool(code and re.fullmatch(r"[A-Z]{2}", code) and code in COMMON_LANG_CODES)
 
 
 def _add_locale_candidate(locale_urls: dict, code: Optional[str], href: Optional[str]) -> None:
+    """Add a locale candidate to the locale_urls dict if it has a valid code and href, and we don't already have an entry for that code. X-DEFAULT is ignored since it's not a real language."""
     if not code or not href:
         return
     clean = code.upper()
