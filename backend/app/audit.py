@@ -42,10 +42,9 @@ except ImportError:
 client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
 
-# Helper
-
+# Helper functions for audit pipeline
 def _strip_citations(obj):
-    """Recursively strip GPT web-search citation links ([text](url)) from all string values."""
+    """Recursively strip GPT web-search markdown links ([text](url)) from all string values."""
     if isinstance(obj, str):
         return re.sub(r'\s*\(\[[^\]]*\]\([^)]*\)\)', '', obj).strip()
     if isinstance(obj, dict):
@@ -56,11 +55,12 @@ def _strip_citations(obj):
 
 
 def _normalize_lang_codes(data: dict) -> dict:
-    """Uppercase available_languages entries that look like ISO codes; drop full names."""
+    """Uppercase available_languages entries that look like ISO codes and drop full names."""
     if not isinstance(data, dict):
         return data
     for field in ("available_languages", "required_languages"):
         langs = data.get(field)
+        # drop entries that aren't ISO code formats (incudes codes or variant codes)
         if isinstance(langs, list):
             data[field] = [
                 l.upper() for l in langs
@@ -69,8 +69,18 @@ def _normalize_lang_codes(data: dict) -> dict:
     return data
 
 
+def _parse_review_count(val: str) -> int | None:
+    """Parse review count strings like '50,000+', '50k', '1.2M' to int."""
+    upper = val.strip().upper()
+    mult = 1_000_000 if upper.endswith("M") else 1_000 if upper.endswith("K") else 1
+    digits = re.sub(r"[^\d.]", "", upper)
+    return int(float(digits) * mult) if digits else None
+
+
 def _parse_json(text: str, label: str = "") -> dict:
     """Parse JSON from a model response, stripping markdown fences if present."""
+
+    # clean json by removing wrapper markdown fences and any surrounding whitespace
     text = text.strip()
     text = re.sub(r"^```(?:json)?\s*", "", text)
     text = re.sub(r"\s*```$", "", text)
@@ -82,6 +92,8 @@ def _parse_json(text: str, label: str = "") -> dict:
         plog(f"{tag}JSON parse error: {e}")
         plog(f"{tag}Response length: {len(text)} chars")
         plog(f"{tag}Last 300 chars: {text[-300:]!r}")
+
+        # try json repair for issues in json format
         try:
             from json_repair import repair_json
             repaired = repair_json(text)
@@ -90,7 +102,7 @@ def _parse_json(text: str, label: str = "") -> dict:
             return _normalize_lang_codes(_strip_citations(result))
         except Exception:
             pass
-        # Try to extract a JSON object from within the text (handles preamble/postamble)
+        # try to extract a JSON object from within the text (handles preamble/postamble)
         match = re.search(r'\{.*\}', text, re.DOTALL)
         if match:
             plog(f"{tag}Attempting extraction from embedded JSON block...")
@@ -100,7 +112,7 @@ def _parse_json(text: str, label: str = "") -> dict:
 
 def gather_all_client_data(url: str, company_name: str, crawler_facts: dict = None) -> tuple:
     """
-    Gather client Pillar 1 and Pillar 3 data via two independent gpt-4o-search-preview calls.
+    Gather client Pillar 1 and Pillar 3 data with two independent GPT-5 calls.
 
     Turn 1 (Globalization): crawler_facts injected as authoritative for structural fields
     (available_languages, hreflang, locale_urls). GPT researches geographic_presence,
@@ -114,10 +126,11 @@ def gather_all_client_data(url: str, company_name: str, crawler_facts: dict = No
     # ------------------------------------------------------------------
     # Turn 1: Globalization
     # ------------------------------------------------------------------
+
     crawler_ran = bool(crawler_facts and crawler_facts.get("crawler_ran"))
 
     if crawler_ran:
-        # Format mixed-language issues for injection
+        # Format mixed-language issues for injection into the gpt prompt
         ml_issues = crawler_facts.get("mixed_language_issues", [])
         if ml_issues:
             detail_parts = []
@@ -132,16 +145,10 @@ def gather_all_client_data(url: str, company_name: str, crawler_facts: dict = No
                         strings = hit.get("marker_strings_found", [])
                         hit_fragments.append(f"{lang}: {strings}")
                     detail_parts.append(f"{locale} page ({page_url}): " + " | ".join(hit_fragments))
-                else:
-                    detail_parts.append(
-                        f"{locale} page ({page_url}): French strings found: {iss.get('french_strings_found', [])}"
-                    )
             ml_detail = "; ".join(detail_parts)
         else:
             ml_detail = "None detected (all locale pages checked)"
 
-        # Truncate to first 5 issues to keep prompt length manageable
-        ml_detail_json = json.dumps(ml_issues[:5], ensure_ascii=False)
         locale_urls_json = json.dumps(crawler_facts.get("locale_urls", {}), ensure_ascii=False)
         hreflang_tags_count = len(crawler_facts.get("hreflang_tags", []))
         plog(f"[audit]   hreflang tags count: {hreflang_tags_count}")
@@ -165,7 +172,6 @@ Use these EXACT values in your JSON response for the listed fields - do not re-r
   hreflang_x_default: {x_default_status}
     pages_checked: {crawler_facts.get('pages_checked', 0)}
     target_languages_checked_for_mixing: {target_langs_json}
-    mixed_language_ux_issues_detail: {ml_detail_json}
   mixed_language_ux_issues: {ml_detail}
 
 STEP 1 - Research the company's geographic presence:
@@ -206,8 +212,7 @@ Do not include URLs, markdown links, or citation text in the value.
 
 Return ONLY a valid JSON object with no markdown fences.
 Only return the fields below — do NOT include available_languages, language_selector_type,
-locale_urls, hreflang_present, pages_checked, target_languages,
-or mixed_language_ux_issues_detail as those are already known:
+locale_urls, hreflang_present, pages_checked, or target_languages as those are already known:
 IMPORTANT: The JSON below shows field names and value types ONLY. Do NOT copy these example values — replace every value with your actual research findings above.
 {{
   "geographic_presence": "[your actual finding: regions and country count]",
@@ -300,7 +305,7 @@ For available_languages and required_languages, use ISO language codes (e.g. EN,
     plog("[audit]   Turn 1 (Globalization) complete.")
 
     # ------------------------------------------------------------------
-    # Turn 2: Accessibility & Compliance (independent call — avoids TPM ceiling)
+    # Turn 2: Accessibility & Compliance
     # Context injected: URL, company name, available languages + locale URLs from
     # the crawler so GPT can infer the applicable regulatory framework (GDPR, RGAA,
     # ADA, etc.) without needing the full Turn 1 conversation history.
@@ -315,7 +320,7 @@ For available_languages and required_languages, use ISO language codes (e.g. EN,
     ) or {}
     locale_urls_json = json.dumps(locale_urls, ensure_ascii=False)
 
-    # Cookie banner facts from Playwright crawler (authoritative)
+    # insert cookie banner info deterministically if detected, otherwise allow it to look for one
     cookie_banner_detected = crawler_facts.get("cookie_banner_detected") if crawler_facts else None
     cookie_provider = crawler_facts.get("cookie_provider") if crawler_facts else None
     if cookie_banner_detected is not None:
@@ -446,7 +451,7 @@ ONLINE REPUTATION:
 13. Digital engagement level: High / Medium / Low (based on social following + review volume).
 14. LinkedIn follower count - search directly for their LinkedIn company page by name.
 15. Total social media reach estimate across all platforms.
-16. Review score (Trustpilot or Google) if available. Return as a numeric float (e.g. 4.3) or null.
+16. Review score (Trustpilot) if available. Return as a numeric float (e.g. 4.3) or null.
 17. Overall online sentiment (positive / neutral / negative).
 
 Return ONLY a valid JSON object with no markdown fences.
@@ -532,6 +537,7 @@ def build_facts_pack(
         cf["lcr_score"] = round((comp_available / comp_required) * 100, 1) if comp_required else 0.0
         cf["lcr_tier"] = compute_lcr_tier(cf["lcr_score"])
 
+    # return facts info about each competitor
     return {
         "url": url,
         "company_name": company_name,
@@ -582,7 +588,8 @@ def generate_ui_content(facts: dict) -> dict:
     comp_summary = "\n".join(
         f"- {c.get('company_name', f'Competitor {i+1}')}: "
         f"{len(c.get('available_languages', []))} languages, LCR {c.get('lcr_score', 'N/A')}%, "
-        f"sentiment {c.get('overall_sentiment', 'N/A')}, LinkedIn {c.get('linkedin_followers', 'N/A')}"
+        f"sentiment {c.get('overall_sentiment', 'N/A')}, LinkedIn {c.get('linkedin_followers', 'N/A')}, "
+        f"WCAG: {c.get('wcag_level_claimed', 'undeclared')}, brand: {c.get('brand_recognition', 'N/A')}"
         for i, c in enumerate(cf)
     )
 
@@ -627,7 +634,7 @@ PILLAR 2 - WEBSITE HEALTH:{_p2_data_note}
 - LCP mobile: {p2.get('lcp_mobile', 'N/A')}, CLS: {p2.get('cls_mobile', 'N/A')}
 - Core Web Vitals field data: LCP {p2.get('cwv_lcp_category', 'N/A')}, CLS {p2.get('cwv_cls_category', 'N/A')}, INP {p2.get('cwv_inp_category', 'N/A')}
 - Performance issues: render-blocking resources: {p2.get('render_blocking_resources', False)}, unused JavaScript: {p2.get('unused_javascript', False)}, unused CSS: {p2.get('unused_css', False)}
-- Pages crawled: {p2.get('pages_crawled', 0)}, broken links: {p2.get('broken_internal_urls', 0)}, missing meta descriptions: {p2.get('missing_meta_descriptions', 0)}
+- Pages crawled: {p2.get('pages_crawled', 0)}, broken links: {p2.get('broken_internal_urls', 0)}, missing meta descriptions: {p2.get('missing_meta_descriptions', 0)}, duplicate meta descriptions: {p2.get('duplicate_meta_pages', 0)}
 - HSTS: {'Yes' if p2.get('hsts_present') else 'No'}, HTTPS redirect: {'Yes' if p2.get('https_redirect') else 'No'}
 - Schema markup: {p2.get('schema_types', 'None detected')}
 
@@ -732,7 +739,7 @@ def run_audit(job_id: str, url: str, company_name: str, competitors: list) -> di
     _ctx.job_id = job_id[:8]
     plog(f"[audit] Starting audit for {url} ({company_name})")
 
-    # --- All imports up front, before pool starts ---
+    # start with all imports up front across different pillars, before pool starts 
     gather_pillar1_facts = None
     gather_mixed_language_issues = None
     try:
@@ -758,7 +765,7 @@ def run_audit(job_id: str, url: str, company_name: str, competitors: list) -> di
     except Exception as e:
         plog(f"[audit] WARNING: Could not import pillar4_gather: {e}")
 
-    # --- Nested competitor full-chain helper (Playwright crawl + GPT on same thread) ---
+    # helper to check if a url's domain resolves, to avoid wasting time for dead domains. 
     def _dns_resolves(raw_url: str) -> bool:
         try:
             hostname = urlparse(raw_url).hostname or ""
@@ -767,6 +774,7 @@ def run_audit(job_id: str, url: str, company_name: str, competitors: list) -> di
         except socket.gaierror:
             return False
 
+    # helper to run competitor chain (crawler + GPT) for a single competitor, on a background thread
     def _run_competitor_full(comp_url: str) -> dict:
         _ctx.job_id = job_id[:8]
         if not _dns_resolves(comp_url):
@@ -796,11 +804,9 @@ def run_audit(job_id: str, url: str, company_name: str, competitors: list) -> di
             plog(f"[audit]   Comp GPT failed ({comp_url}): {e}")
             return {"company_name": comp_url, "available_languages": comp_langs or [], "required_languages": []}
 
-    # --- Launch background threads ---
-    # max_workers=4: 1 for Pillar 2 (DataForSEO + PSI), 3 for competitor full chains
-    # (crawl + GPT on same thread). All 4 start at T=0 and run concurrently.
-    # GPT calls inside _run_competitor_full run on background threads; the main thread
-    # GPT calls (Turn 1, Turn 2, Pillar 4, UI content) remain sequential.
+    # Launch background threads:
+    # max_workers=4: 1 for Pillar 2 (DataForSEO + PSI), 3 for competitor full chains. All start at same time as main thread. 
+    # Main thread: GPT calls (Turn 1, Turn 2, Pillar 4, UI content) remain sequential.
     pool = ThreadPoolExecutor(max_workers=4)
     if _gather_p2:
         def _run_pillar2():
@@ -826,7 +832,7 @@ def run_audit(job_id: str, url: str, company_name: str, competitors: list) -> di
                          f"hreflang: {client_crawler.get('hreflang_present')} | "
                          f"x-default: {client_crawler.get('hreflang_x_default_present')}")
                     # Sanity check: if only 1 locale detected, the crawler likely hit a
-                    # JS-rendering race or was blocked — drop available_languages so GPT fills
+                    # JS-rendering race or was blocked,drop available_languages so GPT fills
                     # it in, but keep hreflang/locale_urls/cookie data which are still valid.
                     if len(client_crawler.get("available_languages", [])) <= 1:
                         plog("[audit]   Crawler returned <=1 locale — treating as failed, GPT will research languages.")
@@ -864,18 +870,17 @@ def run_audit(job_id: str, url: str, company_name: str, competitors: list) -> di
         try:
             if _gather_p4:
                 pillar4_data = _gather_p4(url, company_name)
-                # Coerce review count fields from strings to ints (safety net for "50,000+" etc.)
+                # normalize review counts to integers when they have letters
                 for _field in ("trustpilot_reviews", "glassdoor_reviews", "indeed_reviews"):
                     _val = pillar4_data.get(_field)
                     if isinstance(_val, str):
-                        _cleaned = re.sub(r"[^\d]", "", _val)
-                        pillar4_data[_field] = int(_cleaned) if _cleaned else None
+                        pillar4_data[_field] = _parse_review_count(_val)
                 plog(f"[audit]   Pillar 4 complete. Sentiment: {pillar4_data.get('overall_sentiment', 'N/A')}")
         except Exception as e:
             plog(f"[audit]   Pillar 4 gathering failed: {e}")
             pillar4_data = {}
 
-        # Merge crawler-only fields into pillar1_data (these never come from GPT)
+        # Merge crawler-only fields into pillar1_data 
         pillar1_data["crawler_ran"] = bool(client_crawler and client_crawler.get("crawler_ran"))
         if client_crawler and client_crawler.get("crawler_ran"):
             pillar1_data["locale_urls"] = client_crawler.get("locale_urls", {})
