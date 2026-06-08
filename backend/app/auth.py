@@ -6,6 +6,7 @@ from jose import jwt, JWTError
 bearer_scheme = HTTPBearer()
 
 def verify_token(credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme)) -> str:
+    """Verify the JWT token from the Authorization header and return the user's email. Ensures only valid requests are handled."""
     try:
         # decode the JWT token using same key as set in fronend env.local
         payload = jwt.decode(
