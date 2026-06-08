@@ -24,6 +24,7 @@ from .auth import verify_token
 
 
 def send_notification_email(to: str, company_name: str, job_id: str):
+    """Send an email notification to the user when their audit is complete, with a link to view the report."""
     app_url = os.environ.get("APP_URL", "")
     msg = MIMEMultipart("alternative")
     msg["Subject"] = "Your SEO audit is ready!"
@@ -33,6 +34,26 @@ def send_notification_email(to: str, company_name: str, job_id: str):
         f"<p>Hi,</p>"
         f"<p>Your pre-audit for <strong>{company_name}</strong> is complete.</p>"
         f"<p><a href='{app_url}/audits/{job_id}/result'>View your report</a></p>"
+    )
+    msg.attach(MIMEText(html, "html"))
+    with smtplib.SMTP(os.environ["SMTP_HOST"], int(os.environ.get("SMTP_PORT", "587"))) as server:
+        server.starttls()
+        server.login(os.environ["SMTP_USER"], os.environ["SMTP_PASS"])
+        server.sendmail(msg["From"], [to], msg.as_string())
+
+
+def send_failure_email(to: str, company_name: str, job_id: str):
+    """Send an email notification to the user when their audit fails."""
+    app_url = os.environ.get("APP_URL", "")
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = "Your SEO audit encountered an error"
+    msg["From"] = "noreply@powerling.com"
+    msg["To"] = to
+    html = (
+        f"<p>Hi,</p>"
+        f"<p>Unfortunately, your pre-audit for <strong>{company_name}</strong> encountered an error and could not be completed.</p>"
+        f"<p><a href='{app_url}/audits/{job_id}'>View details</a></p>"
+        f"<p>Please try submitting the audit again. If the problem persists, contact support.</p>"
     )
     msg.attach(MIMEText(html, "html"))
     with smtplib.SMTP(os.environ["SMTP_HOST"], int(os.environ.get("SMTP_PORT", "587"))) as server:
@@ -133,6 +154,10 @@ def run_audit_job(job_id: str, url: str, company_name: str, competitors: list):
             job.completed_at = datetime.utcnow()
             job.error_message = str(e)
             db.commit()
+            try:
+                send_failure_email(job.submitted_by, company_name, job_id)
+            except Exception as mail_err:
+                plog(f"[audit] WARNING: failed to send failure email: {mail_err}")
     finally:
         db.close()
         _audit_semaphore.release()
@@ -141,6 +166,7 @@ def run_audit_job(job_id: str, url: str, company_name: str, competitors: list):
 # Startup checks
 @app.on_event("startup")
 def validate_env():
+    """Validate that all required environment envs are set on startup."""
     required = [
         "OPENAI_API_KEY",
         "DATAFORSEO_LOGIN",
@@ -160,6 +186,7 @@ def validate_env():
 
 @app.on_event("startup")
 def cleanup_stale_jobs():
+    """On server start/restart, mark any jobs that were processing/pending as errored since they were interrupted."""
     db = SessionLocal()
     stale = db.query(AuditJob).filter(
         AuditJob.status.in_(["processing", "pending"])
@@ -192,6 +219,7 @@ async def create_audit(
     """Create a new audit job and start the pipeline in the background."""
     job_id = str(uuid.uuid4())
 
+    # create an audit job and add to tb
     db = SessionLocal()
     job = AuditJob(
         id=job_id,
@@ -209,6 +237,7 @@ async def create_audit(
     db.refresh(job)
     db.close()
 
+    # run the audit in the background and update the job record when done
     background_tasks.add_task(
         run_audit_job,
         job_id,
@@ -371,7 +400,7 @@ def update_user_role(email: str, body: UserInsertBody, submitted_by: str = Depen
         db.close()
         raise HTTPException(status_code=403, detail="Forbidden: admin access required")
 
-    # update the user's role
+    # filter for user
     user = db.query(User).filter(User.email == email).first()
     if not user:
         db.close()
