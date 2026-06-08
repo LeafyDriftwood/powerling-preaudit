@@ -69,7 +69,7 @@ def _normalize_lang_codes(data: dict) -> dict:
     return data
 
 
-def _parse_review_count(val: str) -> int | None:
+def _parse_review_count(val: str) -> "int | None":
     """Parse review count strings like '50,000+', '50k', '1.2M' to int."""
     upper = val.strip().upper()
     mult = 1_000_000 if upper.endswith("M") else 1_000 if upper.endswith("K") else 1
