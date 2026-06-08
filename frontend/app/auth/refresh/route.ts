@@ -16,8 +16,9 @@ export async function GET(req: NextRequest) {
 
     // update shouldRefresh time
     session.user = { 
-      identifier: session.user?.identifier ?? '',
-      shouldRefresh: shouldRefresh ? Number(shouldRefresh) : 0
+        identifier: session.user?.identifier ?? '',
+        role: session.user?.role ?? 'user',
+        shouldRefresh: shouldRefresh ? Number(shouldRefresh) : 0
     };
 
     await session.save();

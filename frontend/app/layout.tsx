@@ -27,6 +27,7 @@ export default async function RootLayout({
 }>) {
   const session = await getSession();
   const username = session.user?.identifier?.split('@')[0] ?? null;
+  const isAdmin = session.user?.role === 'admin';
 
   return (
     <html lang="en">
@@ -39,6 +40,11 @@ export default async function RootLayout({
             <Link href="/audits" className="text-gray-600 hover:text-gray-900 font-medium transition">
               All Audits
             </Link>
+            {isAdmin && (
+              <Link href="/admin/users" className="text-gray-600 hover:text-gray-900 font-medium transition">
+                Admin
+              </Link>
+            )}
             <Link
               href="/"
               className="bg-green-700 text-white rounded-full px-4 py-1.5 text-sm font-semibold hover:bg-green-800 transition"

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
+import { signUserJwt } from '@/lib/jwt';
 
 export async function GET(req: NextRequest) {
   // extract token param from this url
@@ -32,20 +33,48 @@ export async function GET(req: NextRequest) {
     // extract user identifer
     const userData = await ssoRes.json();
     const identifier = userData.identifier;
+    const ssoRole = userData.rights.admin ? 'admin' : 'user';
 
     // redirect to homepage if identifer is not present
     if (!identifier) {
       return NextResponse.redirect(new URL('/', req.url));
     }
 
+
+    // verify role on our backend too
+    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/users/me`, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${await signUserJwt(identifier)}` },
+    });
+
+    // handle response
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || 'Failed to obtain user information.');
+
+    // use admin if our backend says so, otherwise use sso role
+    const role = data.role === 'admin' ? 'admin' : ssoRole; 
+    console.log(userData);
+
     // set cookie with identifer 
     const session = await getSession();
     session.user = { 
       identifier,
+      role: role,
       shouldRefresh: shouldRefresh ? Number(shouldRefresh) : 0
     };
 
     await session.save();
+
+    // insert user record in backend
+    try {
+      const jwt = await signUserJwt(identifier);
+      // user by default unless they have the admin right
+      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/users/me`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${jwt}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role }),
+      });
+    } catch (e) { console.error('[auth] failed to upsert user record:', e); }
 
     // redirect to home page
     return NextResponse.redirect(new URL('/', req.url));

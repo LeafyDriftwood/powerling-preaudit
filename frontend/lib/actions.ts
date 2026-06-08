@@ -81,3 +81,44 @@ export async function getCurrentUser() {
   const session = await getSession();
   return session.user?.identifier ?? null;
 }
+
+// get all the users (should only be accessible to admins)
+export async function getAllUsers() {
+  // get headers
+  const headers = await getAuthHeader();
+  
+  // call api
+  const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/users`, {
+    headers: headers,
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || 'Failed to fetch users.');
+  return data;
+}
+
+// update a user's role (should only be accessible to admins)
+export async function updateUserRole(identifier: string, role: string) {
+  // get headers
+  const headers = await getAuthHeader();
+
+  // call api
+  const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/users/${identifier}/role`, {
+    method: 'PATCH',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ role }),
+  });
+
+  // handle response
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || 'Failed to update user role.');
+  return data;
+}
+
+// get a specific user and their audits (admin only)
+export async function getUser(email: string) {
+  const headers = await getAuthHeader();
+  const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/users/${encodeURIComponent(email)}`, { headers });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || 'Failed to fetch user.');
+  return data;
+}

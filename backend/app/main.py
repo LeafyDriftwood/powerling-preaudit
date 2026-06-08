@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from fastapi import FastAPI, BackgroundTasks, Form, HTTPException, Depends
+from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import create_engine, event, Column, String, DateTime, Text
 from sqlalchemy.ext.declarative import declarative_base
@@ -82,6 +83,12 @@ class AuditJob(Base):
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
 
+class User(Base):
+    __tablename__ = "users"
+    email = Column(String, primary_key=True, index=True)
+    role = Column(String, default="user")  
+    first_connected_at = Column(DateTime, nullable=False)
+    last_connected_at = Column(DateTime, nullable=False)
 
 Base.metadata.create_all(bind=engine)
 
@@ -271,3 +278,151 @@ def get_audit_result(job_id: str, submitted_by: str = Depends(verify_token)):
     if not job.result:
         raise HTTPException(status_code=500, detail="Audit completed but result is missing")
     return json.loads(job.result)
+
+
+class UserInsertBody(BaseModel):
+    role: str = "user"
+
+@app.get("/users/me")
+def get_current_user(submitted_by: str = Depends(verify_token)):
+    """Get current user information (used by frontend to determine admin status upon login)."""
+    db = SessionLocal()
+    user = db.query(User).filter(User.email == submitted_by).first()
+    db.close()
+
+    # basic info to return upon first login attempt
+    if not user:
+       return {
+           "email": submitted_by, 
+           "role": "user", 
+           "first_connected_at": None, 
+           "last_connected_at": None
+        }
+    return {
+        "email": user.email,
+        "role": user.role,
+        "first_connected_at": user.first_connected_at.isoformat(),
+        "last_connected_at": user.last_connected_at.isoformat(),
+    }
+
+@app.post("/users/me")
+def current_user(body: UserInsertBody, submitted_by: str = Depends(verify_token)):
+    """Insert user record on login, otherwise just update last connected"""
+    db = SessionLocal()
+    user = db.query(User).filter(User.email == submitted_by).first()
+    # check if user exists, if not, create with existing role 
+    if not user:
+        user = User(
+            email=submitted_by,
+            role=body.role,
+            first_connected_at=datetime.utcnow(),
+            last_connected_at=datetime.utcnow(),
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    else:
+        # update last_connected_at on every login (NOTE: role not updaed after first login)
+        user.last_connected_at = datetime.utcnow()
+        db.commit()
+    db.close()
+    return {
+        "email": user.email,
+        "role": user.role,
+        "first_connected_at": user.first_connected_at.isoformat(),
+        "last_connected_at": user.last_connected_at.isoformat(),
+    }
+
+@app.get("/users")
+def list_users(submitted_by: str = Depends(verify_token)):
+    """List all users in the admin-only view"""
+    db = SessionLocal()
+
+    # verify that the requester is an admin
+    requester = db.query(User).filter(User.email == submitted_by).first()
+    if not requester or requester.role != "admin":
+        db.close()
+        raise HTTPException(status_code=403, detail="Forbidden: admin access required")
+
+    # get users and count per user audit counts and package into array
+    users = db.query(User).all()
+    audit_counts = {u.email: db.query(AuditJob).filter(AuditJob.submitted_by == u.email).count() for u in users}
+    result = [
+        {
+            "email": u.email,
+            "role": u.role,
+            "first_connected_at": u.first_connected_at.isoformat(),
+            "last_connected_at": u.last_connected_at.isoformat(),
+            "audit_count": audit_counts.get(u.email, 0),
+        }
+        for u in users
+    ]
+    db.close()
+    return result
+
+@app.patch("/users/{email}/role")
+def update_user_role(email: str, body: UserInsertBody, submitted_by: str = Depends(verify_token)):
+    """Update a user's role (admin-only, used for revoke/grant admin in the frontend)"""
+    db = SessionLocal()
+
+    # verify that the requester is an admin
+    requester = db.query(User).filter(User.email == submitted_by).first()
+    if not requester or requester.role != "admin":
+        db.close()
+        raise HTTPException(status_code=403, detail="Forbidden: admin access required")
+
+    # update the user's role
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        db.close()
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # update role
+    user.role = body.role
+    db.commit()
+    db.refresh(user)
+    db.close()
+    return {
+        "email": user.email,
+        "role": user.role,
+        "first_connected_at": user.first_connected_at.isoformat(),
+        "last_connected_at": user.last_connected_at.isoformat(),
+    }
+
+@app.get("/users/{email}")
+def get_user(email: str, submitted_by: str = Depends(verify_token)):
+    """Get all audit information about a specific user (admin-only, used when seeings user info)"""
+    db = SessionLocal()
+
+     # verify that the requester is an admin
+    requester = db.query(User).filter(User.email == submitted_by).first()
+    if not requester or requester.role != "admin":
+        db.close()
+        raise HTTPException(status_code=403, detail="Forbidden: admin access required")
+    
+    # get user info
+    user = db.query(User).filter(User.email == email).first()
+    audit_count = db.query(AuditJob).filter(AuditJob.submitted_by == email).count()
+    jobs = db.query(AuditJob).filter(AuditJob.submitted_by == email).order_by(AuditJob.created_at.desc()).all()
+
+    jobs_result =  [
+        {
+            "id": j.id,
+            "url": j.url,
+            "company_name": j.company_name,
+            "status": j.status,
+            "created_at": j.created_at.isoformat(),
+        }
+        for j in jobs
+    ]
+
+    db.close()
+
+    return {
+        "email": user.email,
+        "role": user.role,
+        "first_connected_at": user.first_connected_at.isoformat(),
+        "last_connected_at": user.last_connected_at.isoformat(),
+        "audit_count": audit_count,
+        "jobs" : jobs_result
+    }

@@ -6,6 +6,7 @@ import { cookies } from 'next/headers';
 export interface SessionData {
   user?: {
     identifier: string;
+    role: string;
     shouldRefresh: number;
   };
 
