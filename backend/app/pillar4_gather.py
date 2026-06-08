@@ -43,9 +43,10 @@ def _fetch_channel_external_links(channel_id: str) -> list:
     """
     Scrape a YouTube channel page and return external links from the Links section.
     YouTube encodes external links as redirect URLs: youtube.com/redirect?...&q=ENCODED_URL
-    Returns a list of decoded URLs (youtube.com URLs excluded).
+    Returns a list of decoded URLs excluding youtube.com links.
     """
     url = f"https://www.youtube.com/channel/{channel_id}"
+    # browser spoof
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -60,6 +61,7 @@ def _fetch_channel_external_links(channel_id: str) -> list:
         plog(f"  [warn] channel page fetch failed: {e}")
         return []
 
+    # replace escaped characters and extract actual link
     text = resp.text.replace("\\u0026", "&").replace("\\u003d", "=")
     raw_qs = re.findall(r'[?&]q=(https?[^&"\'}\s\\]+)', text)
     seen = set()
@@ -88,6 +90,7 @@ def _step1_youtube(domain: str, company_name: str) -> tuple:
     host = _domain_host(domain)
 
     try:
+        # make request to YouTube Search API to find channels matching the company name
         search_resp = requests.get(
             "https://www.googleapis.com/youtube/v3/search",
             params={
@@ -105,6 +108,7 @@ def _step1_youtube(domain: str, company_name: str) -> tuple:
         if not channel_ids:
             return None, []
 
+        # fetch details for each candidate channel and validate
         det_resp = requests.get(
             "https://www.googleapis.com/youtube/v3/channels",
             params={
@@ -123,15 +127,16 @@ def _step1_youtube(domain: str, company_name: str) -> tuple:
     confident = []
     uncertain = []
 
+    # extract info per channel and validate to determine confident/unconfident match
     for ch in channels:
-        snippet  = ch.get("snippet", {})
-        stats    = ch.get("statistics", {})
+        snippet = ch.get("snippet", {})
+        stats = ch.get("statistics", {})
         branding = ch.get("brandingSettings", {}).get("channel", {})
 
         description = snippet.get("description", "")
-        keywords    = branding.get("keywords", "")
+        keywords = branding.get("keywords", "")
 
-        domain_in_desc     = host.lower() in description.lower()
+        domain_in_desc  = host.lower() in description.lower()
         domain_in_keywords = host.lower() in keywords.lower()
 
         external_links = _fetch_channel_external_links(ch["id"])
@@ -154,6 +159,7 @@ def _step1_youtube(domain: str, company_name: str) -> tuple:
             "external_links": external_links,
         }
 
+        # check if the domain is mentioned anywhere
         if domain_in_desc or domain_in_keywords or domain_in_links:
             confident.append(entry)
         else:
@@ -231,19 +237,27 @@ Return JSON only:
             f"total={getattr(usage, 'total_tokens', '?')}"
         )
     raw = resp.output_text
+    
+    # strip markdown fences if present and parse JSON
     clean = re.sub(r"^```(?:json)?\s*", "", raw.strip())
     clean = re.sub(r"\s*```$", "", clean)
+
+    # attempt to parse json, with some recovery heuristics
     try:
         result = json.loads(clean)
     except json.JSONDecodeError:
-        match = re.search(r'\{.*\}', clean, re.DOTALL)
-        if match:
-            try:
-                result = json.loads(match.group())
-            except Exception:
+        try:
+            from json_repair import repair_json
+            result = json.loads(repair_json(clean))
+        except Exception:
+            match = re.search(r'\{.*\}', clean, re.DOTALL)
+            if match:
+                try:
+                    result = json.loads(match.group())
+                except Exception:
+                    return None
+            else:
                 return None
-        else:
-            return None
 
     channel_id = result.get("selected_channel_id")
     if not channel_id:
@@ -291,6 +305,7 @@ def _step3_footer_scraper(domain: str) -> dict:
         "youtube":   r"youtube\.com/",
     }
 
+    # scrape the page and parse HTML with BeautifulSoup
     try:
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"}
         resp = requests.get(url, timeout=12, headers=headers, allow_redirects=True)
@@ -300,12 +315,14 @@ def _step3_footer_scraper(domain: str) -> dict:
         plog(f"  [warn] footer scraper failed for {url}: {e}")
         return {}
 
+    # look for links in the footer first, then the whole page if no footer or no links in footer
     search_zones = []
     footer = soup.find("footer")
     if footer:
         search_zones.append(footer)
     search_zones.append(soup)
 
+    # search sections, hrefs, and matches against patterns to find candidate platform links
     found = {}
     for zone in search_zones:
         if len(found) == len(PLATFORM_PATTERNS):
@@ -336,7 +353,7 @@ def _step4_gpt_research(
     candidate_links (from the footer scraper) are hints — GPT also searches for
     any platforms not in the hints list.
     """
-    # Build hints string (excluding youtube — handled via pre-populated JSON)
+    # Build hints string (excluding youtube )
     hint_lines = [
         f"  - {platform}: {url}"
         for platform, url in candidate_links.items()
@@ -466,18 +483,23 @@ exact count is unavailable, return null.
             f"total={getattr(usage, 'total_tokens', '?')}"
         )
 
+    # same json parsing pipeline, since GPT might return markdown fences or malformed JSON
     raw = resp.output_text
     clean = re.sub(r"^```(?:json)?\s*", "", raw.strip())
     clean = re.sub(r"\s*```$", "", clean)
     try:
         return json.loads(clean)
     except json.JSONDecodeError:
-        match = re.search(r'\{.*\}', clean, re.DOTALL)
-        if match:
-            try:
-                return json.loads(match.group())
-            except Exception:
-                pass
+        try:
+            from json_repair import repair_json
+            return json.loads(repair_json(clean))
+        except Exception:
+            match = re.search(r'\{.*\}', clean, re.DOTALL)
+            if match:
+                try:
+                    return json.loads(match.group())
+                except Exception:
+                    pass
         return None
 
 
@@ -510,7 +532,6 @@ def gather_pillar4_facts(domain: str, company_name: str) -> dict:
     # Step 4
     plog(f"[pillar4] youtube_data before step4: {youtube_data}")
     result = _step4_gpt_research(domain, company_name, youtube_data, candidate_links)
-
     if result is None:
         return {}
 
