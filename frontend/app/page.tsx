@@ -52,6 +52,7 @@ function WebsiteForm() {
   };
 
   const stripScheme = (u: string) => u.replace(/^https?:\/\//i, '');
+  const normalizeForCompare = (u: string) => stripScheme(u.toLowerCase()).replace(/^www\./, '');
 
   const submitAudit = async (cleanUrl: string, cleanCompanyName: string, cleanCompetitors: string[]) => {
     try {
@@ -127,7 +128,7 @@ function WebsiteForm() {
       const jobs: { id: string; url: string; status: string; created_at: string }[] = await listAudits();
       const existing = jobs.find(j =>
         ['completed', 'processing', 'pending'].includes(j.status) &&
-        stripScheme(j.url.toLowerCase()) === stripScheme(cleanUrl.toLowerCase())
+        normalizeForCompare(j.url) === normalizeForCompare(cleanUrl)
       );
       if (existing) {
         setDuplicateWarning({
