@@ -175,7 +175,10 @@ function LcrDonut({ score, tier }: { score: number; tier: string }) {
         <text x="50" y="46" textAnchor="middle" fontSize="16" fontWeight="700" fill="#111827">{score}%</text>
         <text x="50" y="60" textAnchor="middle" fontSize="9" fill="#6b7280">LCR</text>
       </svg>
-      <span className="text-xs font-medium text-gray-600">{tier}</span>
+      <div className="flex items-center gap-1">
+        <span className="text-xs font-medium text-gray-600">{tier}</span>
+        <MetricPopover title="Languages available / required" content="Available: languages where the full UX (navigation, catalog, checkout) is live. Required: languages needed to serve the company's key markets, derived from traffic data and geographic footprint. The ratio of the two is the LCR score." />
+      </div>
     </div>
   );
 }
@@ -236,7 +239,7 @@ function MetricPopover({ title, content }: { title: string; content: React.React
       <PopoverButton className="w-5 h-5 rounded-full bg-gray-200 text-gray-500 text-xs font-bold flex items-center justify-center hover:bg-gray-300 hover:scale-110 hover:text-gray-700 transition-all focus:outline-none cursor-pointer select-none">
         ?
       </PopoverButton>
-      <PopoverPanel className="absolute z-50 bottom-full right-0 mb-2 bg-white border border-gray-200 rounded-xl shadow-lg p-4" style={{ width: '320px' }}>
+      <PopoverPanel className="absolute z-50 bottom-full right-0 mb-2 bg-white border border-gray-200 rounded-xl shadow-lg p-4 text-left" style={{ width: '320px' }}>
         <p className="text-sm font-semibold text-gray-800 mb-1.5">{title}</p>
         <div className="text-xs text-gray-500 leading-relaxed">{content}</div>
       </PopoverPanel>
@@ -480,7 +483,7 @@ export default function ResultPage() {
                 <div className="bg-gray-50 rounded-lg p-3">
                   <div className="flex items-center justify-between mb-1">
                     <p className="text-xs text-gray-500">Hreflang</p>
-                    <MetricPopover title="Hreflang tags" content="HTML tags that tell search engines which language and region version of a page to serve. Missing hreflang tags hurt international SEO ranking for multilingual sites." />
+                    <MetricPopover title="Hreflang tags" content="HTML tags that tell search engines which language and region version of a page to serve and should be in the page's header. Missing/incorrectly placed hreflang tags hurt international SEO ranking for multilingual sites." />
                   </div>
                   {p1.crawler_ran === false
                     ? <p className="font-semibold text-gray-400">N/A</p>
