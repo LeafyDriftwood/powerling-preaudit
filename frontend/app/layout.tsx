@@ -33,8 +33,8 @@ export default async function RootLayout({
     <html lang="en">
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased pt-14`}>
         <nav className="fixed top-0 left-0 right-0 z-50 h-14 bg-white border-b border-gray-200 flex items-center justify-between px-6">
-          <Link href="/" className="text-green-800 font-bold text-lg hover:text-green-900 transition">
-            Powerling Pre-Audit
+          <Link href="/" className="hover:opacity-80 transition cursor-pointer">
+            <img src="/POWERLING_LOGO_black.png" alt="Powerling" className="w-auto" style={{ height: '30px' }} />
           </Link>
           <div className="flex items-center gap-4">
             <Link href="/audits" className="text-gray-600 hover:text-gray-900 font-medium transition">
