@@ -173,6 +173,7 @@ Use these EXACT values in your JSON response for the listed fields - do not re-r
     pages_checked: {crawler_facts.get('pages_checked', 0)}
     target_languages_checked_for_mixing: {target_langs_json}
   mixed_language_ux_issues: {ml_detail}
+  translation_plugin: {crawler_facts.get('translation_plugin') or 'none'}
 
 STEP 1 - Research the company's geographic presence:
 Search for where {company_name} operates, sells, or has customers. Look for:
@@ -203,6 +204,7 @@ The crawler has already confirmed the available languages above. Use those exact
 
 STEP 5 - Note translation quality on the website:
 Any observations on machine vs. professional translation, inconsistencies, or untranslated sections.
+If translation_plugin is set (e.g. "gtranslate", "weglot", "google-translate"), flag that available languages are served via a machine translation overlay — this is a localization quality concern worth noting.
 
 STEP 6 - Traffic data:
 Search Semrush (semrush.com/website/[domain]/overview/) for monthly organic traffic and top traffic countries.
@@ -496,7 +498,7 @@ def compute_lcr(available_languages: list, required_languages: list) -> float:
     """Calculate Language Coverage Rate: LCR = (AL / RL) * 100."""
     if not required_languages:
         return 0.0
-    return round((len(available_languages) / len(required_languages)) * 100, 1)
+    return round(len(set(available_languages) & set(required_languages)) / len(required_languages) * 100, 1)
 
 
 def compute_lcr_tier(lcr: float) -> str:
