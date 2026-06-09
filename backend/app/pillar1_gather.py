@@ -384,6 +384,43 @@ def _detect_language_selector_type(page) -> str:
     return result
 
 
+def _detect_translation_plugin(page) -> dict:
+    """
+    Detect machine-translation overlay plugins (GTranslate, Weglot, Google Translate widget).
+    Returns {"plugin": str | None, "languages": [str]} where languages are uppercase ISO codes
+    extracted from the plugin's flag widget (if available).
+    """
+    return page.evaluate("""() => {
+        const scripts = Array.from(document.scripts).map(s => s.src || '');
+
+        // GTranslate: DOM class is the primary signal — WP plugin files are often served via CDN
+        // (e.g. ExactDN) with no gtranslate.net hostname, but the path always contains /plugins/gtranslate/.
+        const hasGTranslate = !!document.querySelector('.gt_switcher, [id^="gt-wrapper-"]')
+            || scripts.some(s => s.includes('gtranslate.net') || s.includes('/plugins/gtranslate/'));
+        if (hasGTranslate) {
+            // data-gt-lang is canonical and present on every switcher link across all GTranslate installs
+            const langs = [...new Set(
+                Array.from(document.querySelectorAll('a[data-gt-lang]'))
+                    .map(a => (a.getAttribute('data-gt-lang') || '').trim())
+                    .filter(v => /^[a-z]{2}(-[a-z]{2,4})?$/i.test(v))
+            )];
+            return { plugin: 'gtranslate', languages: langs };
+        }
+
+        if (scripts.some(s => s.includes('cdn.weglot.com'))) {
+            return { plugin: 'weglot', languages: [] };
+        }
+
+        // Standalone Google Translate widget (not via GTranslate plugin)
+        if (scripts.some(s => s.includes('translate.google.com/translate_a/element')
+                || s.includes('translate.googleapis.com/translate_a/element'))) {
+            return { plugin: 'google-translate', languages: [] };
+        }
+
+        return { plugin: null, languages: [] };
+    }""")
+
+
 # ---------------------------------------------------------------------------
 # Public function 1 — Playwright crawler
 # ---------------------------------------------------------------------------
@@ -412,6 +449,7 @@ def gather_pillar1_facts(url: str) -> dict:
         "target_languages": [],
         "cookie_banner_detected": False,
         "cookie_provider": None,
+        "translation_plugin": None,
     }
 
     try:
@@ -496,6 +534,17 @@ def gather_pillar1_facts(url: str) -> dict:
             result["cookie_banner_detected"] = cookie_info.get("detected", False)
             result["cookie_provider"] = cookie_info.get("provider")
             plog(f"[crawler] Cookie banner: {result['cookie_banner_detected']} (provider: {result['cookie_provider']})")
+
+            plugin_info = _detect_translation_plugin(page)
+            result["translation_plugin"] = plugin_info.get("plugin")
+            if result["translation_plugin"] and plugin_info.get("languages"):
+                for lang_code in plugin_info["languages"]:
+                    upper = lang_code.replace("_", "-").upper()
+                    key = upper if upper in KNOWN_LANGUAGE_VARIANTS else _normalize_lang(lang_code)
+                    if (key in KNOWN_LANGUAGE_VARIANTS or _is_probable_lang_code(key)) and key not in result["locale_urls"]:
+                        result["locale_urls"][key] = url
+                result["available_languages"] = sorted(result["locale_urls"].keys())
+            plog(f"[crawler] Translation plugin: {result['translation_plugin']} (languages: {plugin_info.get('languages', [])})")
 
             plog(f"[crawler] Found {len(locale_urls)} locales: {list(locale_urls.keys())}")
 
