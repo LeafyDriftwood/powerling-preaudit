@@ -32,8 +32,8 @@ _POLL_TIMEOUT = 1800   # give up after 30 min (large sites need 15-20 min)
 _PAGES_BATCH = 100     # DataForSEO max items per pages request
 _HTTP_TIMEOUT = 30
 _MAX_RETRIES = 3
-_BACKOFF_429 = 5       # seconds; doubles each retry (5, 10, 20)
-_BACKOFF_ERR = 2       # seconds for transient errors; doubles each retry
+_BACKOFF_429 = 5       # seconds that doubles after each retry
+_BACKOFF_ERR = 2       # seconds for transient errors
 
 
 # ---------------------------------------------------------------------------
@@ -54,7 +54,7 @@ def _session() -> requests.Session:
 
 
 def _dig(obj, *keys, default=None):
-    """Safely traverse nested dicts/lists by key or integer index."""
+    """Safely traverse nested dicts/lists by key or integer index. Used as a helper as opposed to nesting dictionary calls"""
     for k in keys:
         if obj is None:
             return default
@@ -72,7 +72,7 @@ def _dig(obj, *keys, default=None):
 
 def _request(session: requests.Session, method: str, url: str, **kwargs) -> dict:
     """
-    HTTP GET or POST with retry/backoff and DataForSEO JSON status validation.
+    HTTP GET or POST wrapper with retry/backoff and DataForSEO JSON status validation.
     - 429: waits 5s, 10s, 20s before each retry.
     - Transient errors: waits 2s, 4s before each retry.
     - Validates JSON-level status_code on success (DataForSEO returns 200 HTTP
@@ -81,14 +81,19 @@ def _request(session: requests.Session, method: str, url: str, **kwargs) -> dict
     """
     fn = session.get if method == "GET" else session.post
     last_exc = None
+
+    # loop through number of retries allowed
     for attempt in range(_MAX_RETRIES):
         try:
+            # calculate backofftime and wait if this is a retry
             resp = fn(url, timeout=_HTTP_TIMEOUT, **kwargs)
             if resp.status_code == 429 and attempt < _MAX_RETRIES - 1:
                 wait = _BACKOFF_429 * (2 ** attempt)
                 plog(f"[dfseo] 429 rate-limited, retrying in {wait}s ...")
                 time.sleep(wait)
                 continue
+
+            # raise for other http errors
             resp.raise_for_status()
             data = resp.json()
             # Validate DataForSEO application-level status
@@ -98,6 +103,8 @@ def _request(session: requests.Session, method: str, url: str, **kwargs) -> dict
                     f"DataForSEO error {api_status}: {data.get('status_message')}"
                 )
             return data
+        
+        # Handle other transient errors with backoff
         except requests.exceptions.RequestException as exc:
             last_exc = exc
             if attempt < _MAX_RETRIES - 1:
