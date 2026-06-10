@@ -30,6 +30,7 @@ import json
 import os
 import re
 import socket
+import time
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
 from openai import OpenAI
@@ -55,17 +56,17 @@ def _strip_citations(obj):
 
 
 def _normalize_lang_codes(data: dict) -> dict:
-    """Uppercase available_languages entries that look like ISO codes and drop full names."""
+    """Strip available_languages and required_languages to base ISO codes, drop full names, deduplicate."""
     if not isinstance(data, dict):
         return data
     for field in ("available_languages", "required_languages"):
         langs = data.get(field)
-        # drop entries that aren't ISO code formats (incudes codes or variant codes)
         if isinstance(langs, list):
-            data[field] = [
-                l.upper() for l in langs
+            normalized = [
+                re.split(r'[-_]', l)[0].upper() for l in langs
                 if isinstance(l, str) and re.match(r'^[a-zA-Z]{2}(-[a-zA-Z]{2,4})?$', l)
             ]
+            data[field] = list(dict.fromkeys(normalized))
     return data
 
 
@@ -150,8 +151,6 @@ def gather_all_client_data(url: str, company_name: str, crawler_facts: dict = No
             ml_detail = "None detected (all locale pages checked)"
 
         locale_urls_json = json.dumps(crawler_facts.get("locale_urls", {}), ensure_ascii=False)
-        hreflang_tags_count = len(crawler_facts.get("hreflang_tags", []))
-        plog(f"[audit]   hreflang tags count: {hreflang_tags_count}")
         target_langs_json = json.dumps(crawler_facts.get("target_languages", []), ensure_ascii=False)
 
         x_default_status = (
@@ -168,7 +167,7 @@ Use these EXACT values in your JSON response for the listed fields - do not re-r
   available_languages: {crawler_facts['available_languages']}
   language_selector_type: "{crawler_facts['language_selector_type']}"
     locale_urls: {locale_urls_json}
-  hreflang_present: {crawler_facts['hreflang_present']} ({hreflang_tags_count} tags detected)
+  hreflang_present: {crawler_facts['hreflang_present']} (source: {crawler_facts.get('hreflang_source', 'none')})
   hreflang_x_default: {x_default_status}
     pages_checked: {crawler_facts.get('pages_checked', 0)}
     target_languages_checked_for_mixing: {target_langs_json}
@@ -276,7 +275,7 @@ Do not include URLs, markdown links, or citation text in the value.
 Return ONLY a valid JSON object with no markdown fences.
 IMPORTANT: The JSON below shows field names and value types ONLY. Do NOT copy these example values — replace every value with your actual research findings above.
 hreflang_present and hreflang_x_default_present must be JSON booleans (true or false), never null or a string.
-For available_languages and required_languages, use ISO language codes (e.g. EN, FR, ZH-CN, PT-BR). Never use full language names.
+For available_languages and required_languages, use base ISO language codes only (e.g. EN, FR, ZH, PT, ES). Never use regional variants (no ZH-CN, PT-BR, EN-GB) and never use full language names.
 {{
   "available_languages": ["XX", "XX"],
   "language_selector_type": "[your actual finding]",
@@ -325,11 +324,8 @@ For available_languages and required_languages, use ISO language codes (e.g. EN,
     # insert cookie banner info deterministically if detected, otherwise allow it to look for one
     cookie_banner_detected = crawler_facts.get("cookie_banner_detected") if crawler_facts else None
     cookie_provider = crawler_facts.get("cookie_provider") if crawler_facts else None
-    if cookie_banner_detected is not None:
-        cookie_context = (
-            f"Yes (provider: {cookie_provider})" if cookie_provider
-            else ("Yes (provider unknown)" if cookie_banner_detected else "No — not detected on page load")
-        )
+    if cookie_banner_detected:
+        cookie_context = f"Yes (provider: {cookie_provider})" if cookie_provider else "Yes (provider unknown)"
         cookie_instruction = (
             f"AUTHORITATIVE FACT: Direct browser analysis confirmed cookie consent banner: {cookie_context}. "
             f"Use this exact value for has_cookie_banner and cookie_provider. Do NOT re-research it."
@@ -437,7 +433,7 @@ Research the website {url} to gather competitive benchmark data. Search online f
 
 GLOBALIZATION:
 1. What languages are available on the website? Only count full UX languages (not partial translations).{_lang_question_suffix}
-2. Search for the company's geographic presence (countries, regions, key markets). Based on that footprint, estimate how many languages would justify a full translated UX — counting only languages where there is a substantial customer segment, not every language in every country of operation. Return this as required_languages_count (integer).
+2. Search for the company's geographic presence (countries, regions, key markets). Based on that footprint, identify which languages would justify a full translated UX — counting only languages where there is a substantial customer segment, not every language in every country of operation. Return this as required_languages (list of base ISO codes, e.g. ["EN", "FR", "ES"]).
 3. Brief description of global reach (number of countries, key regions).
 4. Search Semrush (semrush.com/website/[domain]/overview/) for monthly organic traffic. Return a clean string like "9.1M (Semrush, Mar 2026)". If Semrush has no data for this domain, return null.
 
@@ -458,11 +454,11 @@ ONLINE REPUTATION:
 
 Return ONLY a valid JSON object with no markdown fences.
 IMPORTANT: The JSON below shows field names and value types ONLY. Do NOT copy these example values — replace every value with your actual research findings above.
-For available_languages, use ISO language codes (e.g. EN, FR, ZH-CN, PT-BR). Never use full language names.
+For available_languages, use base ISO language codes only (e.g. EN, FR, ZH, PT, ES). Never use regional variants (no ZH-CN, PT-BR, EN-GB) and never use full language names.
 {{
   "company_name": "[actual company name]",
   "available_languages": ["XX", "XX"],
-  "required_languages_count": 0,
+  "required_languages": ["XX", "XX"],
   "global_reach": "[your actual finding]",
   "estimated_monthly_traffic": null,
   "has_accessibility_statement": false,
@@ -534,9 +530,7 @@ def build_facts_pack(
 
     # Compute LCR and tier for each competitor
     for cf in competitor_facts:
-        comp_required = int(cf.get("required_languages_count") or 0) or len(cf.get("required_languages", []))
-        comp_available = len(cf.get("available_languages", []))
-        cf["lcr_score"] = round((comp_available / comp_required) * 100, 1) if comp_required else 0.0
+        cf["lcr_score"] = compute_lcr(cf.get("available_languages", []), cf.get("required_languages", []))
         cf["lcr_tier"] = compute_lcr_tier(cf["lcr_score"])
 
     # return facts info about each competitor
@@ -664,6 +658,7 @@ COMPETITORS:
 
 Write in US English. No em dashes. No markdown links or citations. Professional but direct tone.
 Each finding and recommendation must be one concise sentence. Include specific numbers where available.
+Write between 3 and 5 findings per pillar and exactly 3 recommendations per pillar — no more, no fewer.
 
 Return ONLY a valid JSON object with no markdown fences:
 {{
@@ -777,7 +772,9 @@ def run_audit(job_id: str, url: str, company_name: str, competitors: list) -> di
             return False
 
     # helper to run competitor chain (crawler + GPT) for a single competitor, on a background thread
-    def _run_competitor_full(comp_url: str) -> dict:
+    def _run_competitor_full(comp_url: str, delay_s: int = 0) -> dict:
+        if delay_s:
+            time.sleep(delay_s)
         _ctx.job_id = job_id[:8]
         if not _dns_resolves(comp_url):
             plog(f"[audit]   Comp DNS lookup failed ({comp_url}) — skipping.")
@@ -820,7 +817,7 @@ def run_audit(job_id: str, url: str, company_name: str, competitors: list) -> di
         fut_pillar2 = pool.submit(_run_pillar2)
     else:
         fut_pillar2 = None
-    fut_comp_fulls = [pool.submit(_run_competitor_full, c) for c in competitors]
+    fut_comp_fulls = [pool.submit(_run_competitor_full, c, (i + 1) * 10) for i, c in enumerate(competitors)]
 
     try:
         # Phase 0: Playwright crawler - client site (main thread, critical path)
@@ -829,29 +826,23 @@ def run_audit(job_id: str, url: str, company_name: str, competitors: list) -> di
         try:
             if gather_pillar1_facts:
                 client_crawler = gather_pillar1_facts(url)
-                if client_crawler.get("crawler_ran"):
-                    plog(f"[audit]   Crawler OK: {client_crawler.get('available_languages')} | "
-                         f"hreflang: {client_crawler.get('hreflang_present')} | "
-                         f"x-default: {client_crawler.get('hreflang_x_default_present')}")
-                    # Sanity check: if only 1 locale detected, the crawler likely hit a
-                    # JS-rendering race or was blocked,drop available_languages so GPT fills
-                    # it in, but keep hreflang/locale_urls/cookie data which are still valid.
-                    if len(client_crawler.get("available_languages", [])) <= 1:
-                        plog("[audit]   Crawler returned <=1 locale — treating as failed, GPT will research languages.")
-                        client_crawler = None
-                    if client_crawler and gather_mixed_language_issues:
-                        plog("[audit]   Running GPT-5 mixed language check...")
-                        ml_issues = gather_mixed_language_issues(
-                            url, client_crawler.get("locale_urls", {})
-                        )
-                        client_crawler["mixed_language_issues"] = ml_issues
-                        plog(f"[audit]   Mixed language issues found: {len(ml_issues)}")
-                else:
-                    _crawler_error = client_crawler.get("crawler_error", "")
-                    plog(f"[audit]   Crawler did not run: {_crawler_error}")
-                    if "ERR_NAME_NOT_RESOLVED" in _crawler_error:
-                        raise ValueError(f"Domain does not exist or could not be reached: {url}")
+                _crawler_error = client_crawler.get("crawler_error") or ""
+                if "ERR_NAME_NOT_RESOLVED" in _crawler_error:
+                    raise ValueError(f"Domain does not exist or could not be reached: {url}")
+                plog(f"[audit]   Crawler: langs={client_crawler.get('available_languages')} | "
+                     f"hreflang={client_crawler.get('hreflang_present')} | "
+                     f"cookie={client_crawler.get('cookie_provider')} | "
+                     f"error={_crawler_error or 'none'}")
+                if len(client_crawler.get("available_languages", [])) <= 1:
+                    plog("[audit]   <=1 locale across all legs — GPT will research languages.")
                     client_crawler = None
+                if client_crawler and gather_mixed_language_issues:
+                    plog("[audit]   Running GPT-5 mixed language check...")
+                    ml_issues = gather_mixed_language_issues(
+                        url, client_crawler.get("locale_urls", {})
+                    )
+                    client_crawler["mixed_language_issues"] = ml_issues
+                    plog(f"[audit]   Mixed language issues found: {len(ml_issues)}")
             else:
                 plog("[audit]   Crawler not available, skipping.")
         except ValueError:
@@ -886,7 +877,6 @@ def run_audit(job_id: str, url: str, company_name: str, competitors: list) -> di
         pillar1_data["crawler_ran"] = bool(client_crawler and client_crawler.get("crawler_ran"))
         if client_crawler and client_crawler.get("crawler_ran"):
             pillar1_data["locale_urls"] = client_crawler.get("locale_urls", {})
-            pillar1_data["hreflang_tags"] = client_crawler.get("hreflang_tags", [])
             pillar1_data["hreflang_x_default_present"] = client_crawler.get("hreflang_x_default_present", False)
             pillar1_data["hreflang_x_default_url"] = client_crawler.get("hreflang_x_default_url")
             pillar1_data["mixed_language_issues"] = client_crawler.get("mixed_language_issues", [])

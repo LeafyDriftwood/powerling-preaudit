@@ -122,3 +122,11 @@ export async function getUser(email: string) {
   if (!response.ok) throw new Error(data.detail || 'Failed to fetch user.');
   return data;
 }
+
+// get the pdf report for an audit job — returns raw bytes (URL.createObjectURL must be called client-side)
+export async function getAuditPdf(job_id: string): Promise<Uint8Array> {
+  const headers = await getAuthHeader();
+  const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/audits/${job_id}/pdf`, { headers });
+  if (!response.ok) throw new Error('Failed to fetch audit PDF.');
+  return new Uint8Array(await response.arrayBuffer());
+}

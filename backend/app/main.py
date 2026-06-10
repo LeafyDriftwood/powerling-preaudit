@@ -1,18 +1,25 @@
+import asyncio
+import base64
 import json
 import os
+import re
 import smtplib
 import threading
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from pathlib import Path
+
+from playwright.async_api import async_playwright
 
 from app.log_ctx import _ctx, plog
 
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, BackgroundTasks, Form, HTTPException, Depends
+import jinja2
+from fastapi import FastAPI, BackgroundTasks, Form, HTTPException, Depends, Response
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import create_engine, event, Column, String, DateTime, Text
@@ -354,6 +361,7 @@ def current_user(body: UserInsertBody, submitted_by: str = Depends(verify_token)
         # update last_connected_at on every login (NOTE: role not updaed after first login)
         user.last_connected_at = datetime.utcnow()
         db.commit()
+        db.refresh(user)
     db.close()
     return {
         "email": user.email,
@@ -455,3 +463,176 @@ def get_user(email: str, submitted_by: str = Depends(verify_token)):
         "audit_count": audit_count,
         "jobs" : jobs_result
     }
+
+
+# ---------------------------------------------------------------------------
+# PDF export
+# ---------------------------------------------------------------------------
+
+_PDF_ASSETS_DIR = Path(__file__).parent / "pdf_assets"
+_pdf_css_cache = None
+_pdf_logo_cache = None
+
+
+def _get_pdf_assets() -> tuple[str, str]:
+    """Return (css, logo_data_url), computed once and cached for the process lifetime."""
+    global _pdf_css_cache, _pdf_logo_cache
+    if _pdf_css_cache is None:
+        assets_dir = _PDF_ASSETS_DIR
+        css = (assets_dir / "colors_and_type.css").read_text()
+        fonts_dir = assets_dir / "fonts"
+        def _inline_font(m):
+            fpath = fonts_dir / m.group(1)
+            if fpath.exists():
+                b64 = base64.b64encode(fpath.read_bytes()).decode()
+                return f"url('data:font/opentype;base64,{b64}')"
+            return m.group(0)
+        css = re.sub(r"url\('([^']+\.otf)'\)", _inline_font, css)
+        css = re.sub(r"@import url\('https://fonts\.googleapis\.com[^']*'\);", "", css)
+        _pdf_css_cache = css
+        logo_bytes = (assets_dir / "powerling-logo-black.png").read_bytes()
+        _pdf_logo_cache = f"data:image/png;base64,{base64.b64encode(logo_bytes).decode()}"
+    return _pdf_css_cache, _pdf_logo_cache
+
+
+def _score_class(n) -> str:
+    try:
+        v = int(float(str(n)))
+        if v >= 70: return "pos"
+        if v >= 50: return "warn"
+        return "neg"
+    except Exception:
+        return "muted"
+
+
+def _score_color(n) -> str:
+    try:
+        v = int(float(str(n)))
+        if v >= 70: return "var(--c-green-strong)"
+        if v >= 50: return "var(--c-amber)"
+        return "var(--c-red)"
+    except Exception:
+        return "#9ca3af"
+
+
+def _tier_class(tier: str) -> str:
+    return {
+        "Full Coverage": "tier-full",
+        "Strong Coverage": "tier-strong",
+        "Partial Coverage": "tier-partial",
+        "Limited Coverage": "tier-limited",
+    }.get(tier or "", "tier-partial")
+
+
+def _lcr_bar_color(score) -> str:
+    try:
+        v = float(str(score))
+        if v >= 80: return "var(--c-green-strong)"
+        if v >= 50: return "var(--c-amber)"
+        return "var(--c-red)"
+    except Exception:
+        return "var(--c-amber)"
+
+
+def _score_class_lcr(score) -> str:
+    try:
+        v = float(str(score))
+        if v >= 80: return "pos"
+        if v >= 50: return "warn"
+        return "neg"
+    except Exception:
+        return "muted"
+
+
+def _lcr_donut_color(lcr) -> str:
+    try:
+        v = float(str(lcr))
+        if v >= 100: return "#03A857"
+        if v >= 80: return "#65a30d"
+        if v >= 50: return "#ca8a04"
+        return "#C8525A"
+    except Exception:
+        return "#ca8a04"
+
+
+@app.get("/audits/{job_id}/pdf")
+async def get_audit_pdf(job_id: str, _submitted_by: str = Depends(verify_token)):
+    """Generate and return a PDF report for a completed audit."""
+    db = SessionLocal()
+    job = db.query(AuditJob).filter(AuditJob.id == job_id).first()
+    db.close()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.status != "completed":
+        raise HTTPException(status_code=400, detail=f"Audit not complete (status: {job.status})")
+    if not job.result:
+        raise HTTPException(status_code=500, detail="No result data")
+
+    data = json.loads(job.result)
+    facts = data.get("facts", {})
+    ui = data.get("ui_content", {})
+
+    p1 = facts.get("pillar_1_globalization", {})
+    p2 = facts.get("pillar_2_website_health", {})
+    p3 = facts.get("pillar_3_accessibility", {})
+    p4 = facts.get("pillar_4_online_reputation", {})
+    cf = facts.get("competitor_facts", [])
+
+    lcr = p1.get("lcr_score") or 0
+    lcr_arc = round(float(lcr) / 100 * 238.76, 1)
+
+    available = set(p1.get("available_languages") or [])
+    required = set(p1.get("required_languages") or [])
+    required_not_covered = sorted(required - available)
+    ml_count = len(p1.get("mixed_language_issues") or [])
+
+    css_content, logo_url_str = _get_pdf_assets()
+
+    tpl_dir = Path(__file__).parent / "templates"
+    env = jinja2.Environment(
+        loader=jinja2.FileSystemLoader(str(tpl_dir)),
+        autoescape=True,
+    )
+    env.globals.update({
+        "score_class": _score_class,
+        "score_color": _score_color,
+        "tier_class": _tier_class,
+        "lcr_bar_color": _lcr_bar_color,
+        "score_class_lcr": _score_class_lcr,
+    })
+
+    tpl = env.get_template("audit_report.html")
+    html = tpl.render(
+        company_name=facts.get("company_name", ""),
+        url=facts.get("url", ""),
+        generated_date=datetime.now(timezone.utc).strftime("%B %d, %Y"),
+        p1=p1, p2=p2, p3=p3, p4=p4,
+        cf=cf, ui=ui,
+        lcr_arc=lcr_arc,
+        lcr_donut_color=_lcr_donut_color(lcr),
+        required_not_covered=required_not_covered,
+        ml_count=ml_count,
+        css_content=css_content,
+        logo_url=logo_url_str,
+    )
+
+    async def _render():
+        async with async_playwright() as pw:
+            browser = await pw.chromium.launch()
+            page = await browser.new_page()
+            await page.set_content(html, wait_until="networkidle")
+            pdf_bytes = await page.pdf(format="A4", print_background=True)
+            await browser.close()
+            return pdf_bytes
+
+    try:
+        pdf_bytes = await asyncio.wait_for(_render(), timeout=30.0)
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="PDF generation timed out")
+
+    slug = re.sub(r"[^a-zA-Z0-9]+", "-", facts.get("company_name", "report")).strip("-").lower()
+    return Response(
+        pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{slug}-preaudit.pdf"'},
+    )

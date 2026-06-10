@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { getAuditDetails, getAuditResult } from '@/lib/actions';
+import { getAuditDetails, getAuditResult, getAuditPdf } from '@/lib/actions';
 import { Popover, PopoverButton, PopoverPanel } from '@headlessui/react';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -41,6 +41,7 @@ interface Facts {
     lcr_available: number;
     lcr_required: number;
     available_languages: string[];
+    available_language_variants?: string[];
     required_languages: string[];
     crawler_ran?: boolean;
     hreflang_present: boolean;
@@ -142,7 +143,7 @@ function StarRating({ score, max = 5 }: { score?: number | string; max?: number 
 }
 
 function PsiBar({ label, score }: { label: string; score?: number }) {
-  const color = score === undefined ? "bg-gray-200" : score >= 70 ? "bg-green-500" : score >= 50 ? "bg-yellow-500" : "bg-red-500";
+  const color = score === undefined ? "bg-gray-200" : score >= 76 ? "bg-green-500" : score >= 51 ? "bg-yellow-500" : "bg-red-500";
   return (
     <div>
       <div className="flex justify-between text-xs text-gray-500 mb-1">
@@ -321,6 +322,26 @@ export default function ResultPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showRaw, setShowRaw] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+
+  async function handleDownloadPdf() {
+    setDownloading(true);
+    try {
+      // parse backend pdf bytes response and trigger download
+      const bytes = await getAuditPdf(job_id);
+      const blob = new Blob([bytes.buffer as ArrayBuffer], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${meta?.company_name ?? "report"}-preaudit.pdf`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    } catch {
+      alert("Failed to generate PDF. Please try again.");
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   useEffect(() => {
     Promise.all([
@@ -421,16 +442,28 @@ export default function ResultPage() {
       <div className="max-w-6xl mx-auto px-6 py-10 flex flex-col gap-10">
 
         {/* Header */}
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">{meta.company_name}</h1>
-          <a href={meta.url} target="_blank" rel="noopener noreferrer" className="text-gray-500 mt-1 hover:text-green-700 hover:underline">{meta.url}</a>
-          {meta.created_at && (
-            <p className="text-gray-400 text-xs mt-1">
-              Generated {new Date(meta.created_at).toLocaleDateString("en-US", {
-                month: "long", day: "numeric", year: "numeric",
-              })}
-            </p>
-          )}
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">{meta.company_name}</h1>
+            <a href={meta.url} target="_blank" rel="noopener noreferrer" className="text-gray-500 mt-1 hover:text-green-700 hover:underline">{meta.url}</a>
+            {meta.created_at && (
+              <p className="text-gray-400 text-xs mt-1">
+                Generated {new Date(meta.created_at).toLocaleDateString("en-US", {
+                  month: "long", day: "numeric", year: "numeric",
+                })}
+              </p>
+            )}
+          </div>
+          <button
+            onClick={handleDownloadPdf}
+            disabled={downloading}
+            className={`flex items-center gap-1.5 text-sm font-semibold text-green-700 hover:text-green-900 cursor-pointer transition-colors whitespace-nowrap ${downloading ? "animate-pulse" : ""}`}
+          >
+            <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M7 1v8M4 6l3 3 3-3M1 12h12" />
+            </svg>
+            PDF
+          </button>
         </div>
 
         {/* Executive Summary */}
@@ -540,7 +573,7 @@ export default function ResultPage() {
                   </p>
                 </div>
                 <div className="bg-gray-50 rounded-lg p-3">
-                  <p className="text-xs text-gray-500 mb-1">Monthly traffic</p>
+                  <p className="text-xs text-gray-500 mb-1">Organic Monthly Traffic</p>
                   <p className="font-semibold text-gray-700">{p1.estimated_monthly_traffic ?? "N/A"}</p>
                 </div>
               </div>
@@ -553,6 +586,16 @@ export default function ResultPage() {
                       <span key={lang} className="px-2 py-0.5 bg-green-50 text-green-700 text-xs font-medium rounded-md">{lang}</span>
                     ))}
                   </div>
+                  {(p1.available_language_variants?.length ?? 0) > 0 && (
+                    <div className="mt-2">
+                      <p className="text-xs text-gray-400 mb-1">Regional variants</p>
+                      <div className="flex flex-wrap gap-1">
+                        {p1.available_language_variants?.map((v) => (
+                          <span key={v} className="px-2 py-0.5 bg-gray-50 text-gray-500 text-xs font-medium rounded-md">{v}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </Card>
@@ -664,8 +707,8 @@ export default function ResultPage() {
                 </div>
                 <div className="bg-gray-50 rounded-lg p-3">
                   <p className="text-xs text-gray-500 mb-1">Cookie consent</p>
-                  <p className={`font-semibold ${p3.has_cookie_banner ? "text-green-600" : "text-red-600"}`}>
-                    {p3.has_cookie_banner ? "Yes" : "No"}
+                  <p className={`font-semibold ${p3.has_cookie_banner ? "text-green-600" : "text-gray-400"}`}>
+                    {p3.has_cookie_banner ? "Yes" : "Undetected"}
                   </p>
                 </div>
                 <div className="bg-gray-50 rounded-lg p-3">

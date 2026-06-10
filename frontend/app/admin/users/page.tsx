@@ -171,7 +171,7 @@ export default function AdminUsersPage() {
                     <td className="px-5 py-4 text-gray-700">{user.audit_count}</td>
                     <td className="px-5 py-4 text-right">
                       <button
-                        onClick={() => toggleRole(user)}
+                        onClick={(e) => { e.stopPropagation(); toggleRole(user); }}
                         disabled={updating === user.email}
                         className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:border-gray-400 hover:text-gray-900 transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                       >

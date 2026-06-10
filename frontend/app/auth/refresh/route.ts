@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
+import { signUserJwt } from '@/lib/jwt';
 
 export async function GET(req: NextRequest) {
     // get new refresh time
@@ -22,6 +23,16 @@ export async function GET(req: NextRequest) {
     };
 
     await session.save();
+
+    // update last_connected_at on token refresh
+    try {
+        const jwt = await signUserJwt(session.user.identifier);
+        await fetch(`${process.env.NEXT_PUBLIC_API_URL}/users/me`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${jwt}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ role: session.user.role }),
+        });
+    } catch (e) { console.error('[auth] failed to update last_connected_at on refresh:', e); }
 
     // redirect to home page
     return NextResponse.redirect(new URL(nextUrl || '/', req.url));

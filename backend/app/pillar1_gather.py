@@ -6,16 +6,19 @@ Two public functions:
   gather_mixed_language_issues(domain, available_languages) — GPT-5: find mixed-language UX issues
 """
 
+import gzip
 import json
 import os
 import re
+import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor
 
 try:
     from app.log_ctx import plog
 except ImportError:
     from log_ctx import plog
 from urllib.parse import urlparse
-from typing import Dict, Optional
+from typing import Optional
 
 from openai import OpenAI
 
@@ -25,14 +28,33 @@ try:
 except ImportError:
     _TLDEXTRACT_AVAILABLE = False
 
+try:
+    from curl_cffi import requests as _creq
+    _CURL_CFFI_AVAILABLE = True
+except ImportError:
+    _CURL_CFFI_AVAILABLE = False
+
+try:
+    from bs4 import BeautifulSoup as _BS
+    _BS4_AVAILABLE = True
+except ImportError:
+    _BS4_AVAILABLE = False
+
+_CURL_HEADERS = {
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-GB,en;q=0.9",
+}
+_SITEMAP_XHTML_NS = "http://www.w3.org/1999/xhtml"
+
 openai_client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
 # Standard 2-letter language codes commonly used in locales, for quick validation of extracted codes.
 COMMON_LANG_CODES = {
-    "AR", "BG", "CS", "DA", "DE", "EL", "EN", "ES", "ET", "FA", "FI", "FR",
-    "HE", "HI", "HR", "HU", "ID", "IT", "JA", "KO", "LT", "LV", "MS", "NL",
-    "NO", "PL", "PT", "RO", "RU", "SK", "SL", "SR", "SV", "TH", "TR", "UK",
-    "VI", "ZH",
+    "AF", "AR", "AZ", "BE", "BG", "BN", "CA", "CS", "CY", "DA", "DE", "EL",
+    "EN", "ES", "ET", "FA", "FI", "FR", "GL", "HE", "HI", "HR", "HT", "HU",
+    "ID", "IS", "IT", "JA", "KA", "KK", "KO", "LT", "LV", "MK", "MN", "MS",
+    "MY", "NE", "NL", "NO", "PL", "PT", "RO", "RU", "SK", "SL", "SQ", "SR",
+    "SV", "SW", "TA", "TH", "TL", "TR", "UK", "UR", "VI", "ZH",
 }
 
 # Genuine language variants where region changes translation content. Only these are preserved as distinct entries in available_languages.
@@ -40,7 +62,6 @@ KNOWN_LANGUAGE_VARIANTS = {
     "ZH-CN", "ZH-TW", "ZH-HK",
     "PT-BR", "PT-PT",
     "FR-CA",
-    "EN-GB", "EN-US", "EN-AU",
     "ES-MX", "ES-ES",
     "NB-NO", "NN-NO",
     "SR-LATN", "SR-CYRL",
@@ -94,11 +115,20 @@ def _extract_code_from_href(href: str, base_url: str) -> Optional[str]:
         if _is_probable_lang_code(code):
             return code
 
-    path_match = re.search(r"/(?:[a-z]{2}(?:[-_][a-z]{2})?)(?:/|$|\?)", href, re.IGNORECASE)
-    if path_match:
-        code = _normalize_lang(path_match.group(0).strip("/?"))
-        if _is_probable_lang_code(code):
-            return code
+    path_segments = [s for s in urlparse(href).path.split("/") if s][:3]
+    for i, seg in enumerate(path_segments):
+        if re.fullmatch(r"[a-z]{2}(?:[-_][a-z]{2,4})?", seg, re.IGNORECASE):
+            code = _normalize_lang(seg)
+            if _is_probable_lang_code(code):
+                # Country-first URLs (/nl/en/, /it/en/): if the next segment is also
+                # a lang code, prefer it — the first is a country code, second is language.
+                if i + 1 < len(path_segments):
+                    next_seg = path_segments[i + 1]
+                    if re.fullmatch(r"[a-z]{2}(?:[-_][a-z]{2,4})?", next_seg, re.IGNORECASE):
+                        next_code = _normalize_lang(next_seg)
+                        if _is_probable_lang_code(next_code):
+                            return next_code
+                return code
 
     try:
         if _TLDEXTRACT_AVAILABLE:
@@ -147,9 +177,9 @@ def _detect_locale_urls(page, base_url: str) -> dict:
         lang = tag.get("lang", "")
         href = tag.get("href", "")
         if lang and href and lang.lower() != "x-default":
-            full_code = lang.replace("_", "-").upper()
-            code = full_code if full_code in KNOWN_LANGUAGE_VARIANTS else _normalize_lang(lang)
-            _add_locale_candidate(locale_urls, code, href)
+            code = _normalize_lang(lang)
+            if _is_probable_lang_code(code):
+                _add_locale_candidate(locale_urls, code, href)
 
     switcher_links = page.evaluate("""() => {
         const selectors = [
@@ -199,10 +229,22 @@ def _detect_locale_urls(page, base_url: str) -> dict:
         }));
     }""")
 
+    _SOCIAL_DOMAINS = {
+        "instagram.com", "facebook.com", "twitter.com", "x.com", "linkedin.com",
+        "youtube.com", "tiktok.com", "pinterest.com", "snapchat.com", "reddit.com",
+        "whatsapp.com", "telegram.org", "discord.com", "twitch.tv",
+    }
+
     for link in broad_links:
         href = link.get("href", "")
         lang_attr = link.get("lang", "")
         text = link.get("text", "")
+
+        # Skip social media links — they use ?hl= for their own UI language, not site locale.
+        if href:
+            href_host = (urlparse(href).hostname or "").lower().removeprefix("www.")
+            if any(href_host == d or href_host.endswith("." + d) for d in _SOCIAL_DOMAINS):
+                continue
 
         code = None
         if lang_attr:
@@ -321,7 +363,7 @@ def _detect_cookie_banner(page) -> dict:
 
         // --- Strategy 2: rendered DOM elements ---
         const domProviders = [
-            { name: "OneTrust",   selectors: ["#onetrust-banner-sdk", ".onetrust-pc-dark-filter"] },
+            { name: "OneTrust",   selectors: ["#onetrust-banner-sdk", ".onetrust-pc-dark-filter", ".ot-sdk-container", "#onetrust-group-container", "#onetrust-accept-btn-handler", "#onetrust-policy"] },
             { name: "Cookiebot",  selectors: ["#CybotCookiebotDialog", "[data-cookieconsent]"] },
             { name: "Didomi",     selectors: ["#didomi-host", ".didomi-popup-container"] },
             { name: "TrustArc",   selectors: ["#truste-consent-track", ".truste_overlay", ".pdynamicbutton"] },
@@ -422,6 +464,197 @@ def _detect_translation_plugin(page) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Leg 1 — curl_cffi raw HTML fetch
+# ---------------------------------------------------------------------------
+
+def _leg1_curl(url: str) -> dict:
+    """
+    Fetch the page with curl_cffi (Chrome TLS impersonation) and extract
+    locale URLs, hreflang variants, CMP script signals, and redirect chain.
+    Returns a result dict; on failure sets 'success': False and 'error'.
+    """
+    result = {
+        "success": False,
+        "hreflang_variants": [],
+        "hreflang_x_default_href": None,
+        "locale_urls": {},
+        "http_link_header": None,
+        "cookie_provider": None,
+        "landed_url": url,
+        "error": None,
+    }
+    if not _CURL_CFFI_AVAILABLE or not _BS4_AVAILABLE:
+        result["error"] = "curl_cffi or bs4 not available"
+        return result
+
+    try:
+        r = _creq.get(url, impersonate="chrome", headers=_CURL_HEADERS,
+                      timeout=15, allow_redirects=True)
+        result["landed_url"] = r.url
+        body = r.text
+        result["http_link_header"] = r.headers.get("link")
+
+        if r.status_code != 200:
+            result["error"] = f"HTTP {r.status_code}"
+            return result
+
+        soup = _BS(body, "lxml") if _BS4_AVAILABLE else None
+
+        hreflang_variants = []
+        locale_urls = {}
+        for tag in soup.find_all("link", rel="alternate"):
+            lang = tag.get("hreflang", "")
+            href = tag.get("href", "")
+            if not lang or not href:
+                continue
+            if lang.lower() == "x-default":
+                result["hreflang_x_default_href"] = href
+            else:
+                code = _normalize_lang(lang)
+                if _is_probable_lang_code(code):
+                    _add_locale_candidate(locale_urls, code, href)
+                v = lang.replace("_", "-").upper()
+                if v in KNOWN_LANGUAGE_VARIANTS:
+                    hreflang_variants.append(v)
+        result["hreflang_variants"] = hreflang_variants
+        result["locale_urls"] = locale_urls
+
+        # CMP script signals — same pattern list as Playwright Strategy 1
+        _CMP_SCRIPT_SIGNALS = [
+            ("OneTrust",       ["cdn.cookielaw.org", "optanon.blob.core.windows.net"]),
+            ("Cookiebot",      ["consent.cookiebot.com", "cookiebot.com/uc.js"]),
+            ("Didomi",         ["sdk.privacy-center.org", "didomi.io"]),
+            ("TrustArc",       ["consent.trustarc.com", "trustarc.com/notice"]),
+            ("CookieYes",      ["cdn-cookieyes.com", "app.cookieyes.com"]),
+            ("Osano",          ["cmp.osano.com"]),
+            ("Axeptio",        ["static.axept.io"]),
+            ("Iubenda",        ["cdn.iubenda.com/cs/iubenda_cs.js"]),
+            ("Usercentrics",   ["app.usercentrics.eu", "privacy-proxy.usercentrics.eu"]),
+            ("Sourcepoint",    ["sourcepoint.com", "sp-prod.net", "cdn.privacy-mgmt.com"]),
+            ("Quantcast",      ["cmp.quantcast.com"]),
+            ("Termly",         ["app.termly.io"]),
+            ("CookieScript",   ["cookiescriptcdn.pro", "cookie-script.com"]),
+            ("Complianz",      ["cdn.complianz.io"]),
+            ("CookieFirst",    ["consent.cookiefirst.com"]),
+            ("Consentmanager", ["cdn.consentmanager.net"]),
+            ("Civic",          ["cc.cdn.civiccomputing.com"]),
+            ("PiwikPRO",       ["piwik.pro"]),
+        ]
+        script_srcs = [s.get("src", "") for s in soup.find_all("script", src=True)]
+        for provider, patterns in _CMP_SCRIPT_SIGNALS:
+            if any(p in src for src in script_srcs for p in patterns):
+                result["cookie_provider"] = provider
+                break
+
+        result["success"] = True
+
+    except Exception as e:
+        result["error"] = str(e)[:200]
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Leg 2 — Sitemap hreflang check
+# ---------------------------------------------------------------------------
+
+def _leg2_sitemap(base_url: str) -> dict:
+    """
+    Fetch robots.txt → follow sitemaps → scan xhtml:link hreflang entries.
+    Returns langs found, locale_urls, and per-sitemap status.
+    """
+    result = {
+        "langs": [],
+        "locale_urls": {},
+        "sitemap_statuses": {},
+    }
+    if not _CURL_CFFI_AVAILABLE:
+        return result
+
+    parsed = urlparse(base_url)
+    root_base = f"{parsed.scheme}://{parsed.netloc}"
+
+    # Get sitemap URLs from robots.txt
+    sitemap_urls = []
+    try:
+        r = _creq.get(f"{root_base}/robots.txt", impersonate="chrome",
+                      headers=_CURL_HEADERS, timeout=10, allow_redirects=True)
+        text = r.text
+        if "<html" not in text[:300].lower():
+            sitemap_urls = [
+                ln.split(":", 1)[1].strip()
+                for ln in text.splitlines()
+                if ln.strip().lower().startswith("sitemap:")
+            ]
+    except Exception:
+        pass
+    if not sitemap_urls:
+        sitemap_urls = [f"{root_base}/sitemap.xml"]
+
+    langs_seen = set()
+    locale_urls = {}
+    seen_sitemaps = set()
+
+    def _parse_sitemap(sm_url: str, depth: int = 0):
+        if depth > 3 or sm_url in seen_sitemaps:
+            return
+        seen_sitemaps.add(sm_url)
+
+        try:
+            r = _creq.get(sm_url, impersonate="chrome", headers=_CURL_HEADERS,
+                          timeout=15, allow_redirects=True)
+            body = r.content
+            if sm_url.endswith(".gz") or body[:2] == b"\x1f\x8b":
+                body = gzip.decompress(body)
+            body_text = body[:300].decode("utf-8", "replace")
+
+            if r.status_code != 200:
+                result["sitemap_statuses"][sm_url] = f"http_error_{r.status_code}"
+                return
+            if "<html" in body_text.lower():
+                result["sitemap_statuses"][sm_url] = "blocked"
+                return
+
+            root = ET.fromstring(body)
+        except ET.ParseError:
+            result["sitemap_statuses"][sm_url] = "failed"
+            return
+        except Exception:
+            result["sitemap_statuses"][sm_url] = "failed"
+            return
+
+        tag = root.tag.split("}")[-1] if "}" in root.tag else root.tag
+        ns = root.tag.split("}")[0].lstrip("{") if "}" in root.tag else ""
+        pfx = f"{{{ns}}}" if ns else ""
+
+        if tag == "sitemapindex":
+            result["sitemap_statuses"][sm_url] = "ok"
+            for sm in root.findall(f"{pfx}sitemap")[:10]:
+                loc = sm.find(f"{pfx}loc")
+                if loc is not None and loc.text:
+                    _parse_sitemap(loc.text.strip(), depth + 1)
+        else:
+            result["sitemap_statuses"][sm_url] = "ok"
+            for url_el in root.findall(f"{pfx}url"):
+                for link in url_el.findall(f"{{{_SITEMAP_XHTML_NS}}}link"):
+                    if link.get("rel") == "alternate" and link.get("hreflang"):
+                        lang = link.get("hreflang", "")
+                        href = link.get("href", "")
+                        if lang.lower() != "x-default" and href:
+                            langs_seen.add(lang.lower())
+                            code = _normalize_lang(lang)
+                            if _is_probable_lang_code(code):
+                                _add_locale_candidate(locale_urls, code, href)
+
+    for sm_url in sitemap_urls:
+        _parse_sitemap(sm_url)
+
+    result["langs"] = sorted(langs_seen)
+    result["locale_urls"] = locale_urls
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Public function 1 — Playwright crawler
 # ---------------------------------------------------------------------------
 
@@ -438,7 +671,6 @@ def gather_pillar1_facts(url: str) -> dict:
         "available_language_variants": [],
         "language_selector_type": "unknown",
         "locale_urls": {},
-        "hreflang_tags": [],
         "hreflang_present": False,
         "hreflang_x_default_present": False,
         "hreflang_x_default_url": None,
@@ -450,34 +682,60 @@ def gather_pillar1_facts(url: str) -> dict:
         "cookie_banner_detected": False,
         "cookie_provider": None,
         "translation_plugin": None,
+        "hreflang_source": None,
+        "landed_url": None,
     }
+
+    # Legs 1+2 run in parallel threads while Playwright starts up.
+    plog(f"[leg1] Starting curl fetch for {url} (parallel with Playwright)")
+    plog(f"[leg2] Starting sitemap check for {url} (parallel with Playwright)")
+    _leg_pool = ThreadPoolExecutor(max_workers=2)
+    _fut_leg1 = _leg_pool.submit(_leg1_curl, url)
+    _fut_leg2 = _leg_pool.submit(_leg2_sitemap, url)
 
     try:
         from playwright.sync_api import sync_playwright
 
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
-            page = browser.new_page()
+            page = browser.new_page(
+                user_agent=(
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/131.0.0.0 Safari/537.36"
+                )
+            )
+            # Hide the Playwright webdriver flag — many enterprise sites (e.g. SFCC/Yottaa)
+            # detect navigator.webdriver=true and serve bot-mitigation pages without hreflang or CMP.
+            page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
             page.set_default_timeout(15000)
 
             plog(f"[crawler] Loading {url} ...")
             try:
-                page.goto(url, wait_until="domcontentloaded")
+                _nav_resp = page.goto(url, wait_until="domcontentloaded")
             except Exception as nav_err:
                 if "ERR_HTTP2_PROTOCOL_ERROR" in str(nav_err):
                     plog(f"[crawler] HTTP/2 error, retrying with HTTP/1.1...")
                     browser.close()
                     browser = p.chromium.launch(headless=True, args=["--disable-http2"])
-                    page = browser.new_page()
+                    page = browser.new_page(
+                        user_agent=(
+                            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                            "AppleWebKit/537.36 (KHTML, like Gecko) "
+                            "Chrome/131.0.0.0 Safari/537.36"
+                        )
+                    )
+                    page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
                     page.set_default_timeout(15000)
-                    page.goto(url, wait_until="domcontentloaded")
+                    _nav_resp = page.goto(url, wait_until="domcontentloaded")
                 else:
                     raise
+            plog(f"[crawler] HTTP {_nav_resp.status if _nav_resp else 0} | title={page.title()!r} | body={len(page.content())} chars")
 
             # Wait for hreflang tags to appear — JS frameworks (e.g. Next.js) may inject
             # them after domcontentloaded, so reading immediately can return 0 tags.
             try:
-                page.wait_for_selector('link[rel="alternate"][hreflang]', timeout=5000)
+                page.wait_for_selector('link[rel="alternate"][hreflang]', state="attached", timeout=5000)
             except Exception:
                 # Site has no hreflang tags, or they didn't load in time.
                 # Give JS-rendered locales a bit more time before locale detection.
@@ -488,7 +746,7 @@ def gather_pillar1_facts(url: str) -> dict:
                     document.querySelectorAll('link[rel="alternate"][hreflang]')
                 ).map(el => ({ lang: el.hreflang.toLowerCase(), href: el.href }));
             }""")
-            result["hreflang_tags"] = raw_hreflang
+
             result["hreflang_present"] = len(raw_hreflang) > 0
             x_default = next((t for t in raw_hreflang if t.get("lang") == "x-default"), None)
             result["hreflang_x_default_present"] = x_default is not None
@@ -520,8 +778,8 @@ def gather_pillar1_facts(url: str) -> dict:
 
             result["locale_urls"] = locale_urls
             result["available_languages"] = sorted(locale_urls.keys())
-            result["available_language_variants"] = (
-                sorted(variant_set) if variant_set else sorted(locale_urls.keys())
+            result["available_language_variants"] = sorted(
+                code for code in variant_set if code in KNOWN_LANGUAGE_VARIANTS
             )
             result["language_selector_type"] = _detect_language_selector_type(page)
 
@@ -549,7 +807,6 @@ def gather_pillar1_facts(url: str) -> dict:
             plog(f"[crawler] Found {len(locale_urls)} locales: {list(locale_urls.keys())}")
 
             browser.close()
-            result["crawler_ran"] = True
             plog(f"[crawler] Pillar 1 crawl complete. "
                   f"{result['pages_checked']} pages checked, "
                   f"{len(result['mixed_language_issues'])} locales with mixed-language markers.")
@@ -557,6 +814,84 @@ def gather_pillar1_facts(url: str) -> dict:
     except Exception as e:
         result["crawler_error"] = str(e)
         plog(f"[crawler] ERROR: {e}")
+
+    # Collect leg results (finished during Playwright execution)
+    leg1 = _fut_leg1.result()
+    leg2 = _fut_leg2.result()
+    _leg_pool.shutdown(wait=False)
+
+    if leg1["success"]:
+        plog(f"[leg1] OK — {len(leg1['locale_urls'])} hreflang locale URLs, "
+             f"variants={leg1['hreflang_variants']}, "
+             f"CMP: {leg1['cookie_provider']}, landed: {leg1['landed_url']}")
+        if leg1["http_link_header"]:
+            plog(f"[leg1] HTTP Link header: {leg1['http_link_header']}")
+    else:
+        plog(f"[leg1] FAILED — {leg1['error']}")
+    plog(f"[leg2] langs={leg2['langs']}, locale_urls={len(leg2['locale_urls'])}, "
+         f"statuses={leg2['sitemap_statuses']}")
+
+    # --- Merge ---
+    # Save Playwright's findings before overwriting
+    pw_has_hreflang = result["hreflang_present"]
+    pw_locale_urls = result["locale_urls"]
+
+    # locale_urls: priority order — leg1 hreflang > leg2 sitemap > Playwright
+    merged_locale_urls = {}
+    if leg1["success"]:
+        for code, href in leg1["locale_urls"].items():
+            _add_locale_candidate(merged_locale_urls, code, href)
+    for code, href in leg2["locale_urls"].items():
+        _add_locale_candidate(merged_locale_urls, code, href)
+    for code, href in pw_locale_urls.items():
+        _add_locale_candidate(merged_locale_urls, code, href)
+    result["locale_urls"] = merged_locale_urls
+    result["available_languages"] = sorted(merged_locale_urls.keys())
+
+    # available_language_variants: union from all three sources
+    all_variants = set(result.get("available_language_variants", []))
+    if leg1["success"]:
+        all_variants.update(leg1["hreflang_variants"])
+    for lang in leg2["langs"]:
+        v = lang.replace("_", "-").upper()
+        if v in KNOWN_LANGUAGE_VARIANTS:
+            all_variants.add(v)
+    result["available_language_variants"] = sorted(all_variants)
+
+    # hreflang fields
+    leg1_has_hreflang = leg1["success"] and len(leg1["locale_urls"]) > 0
+    leg2_has_hreflang = len(leg2["langs"]) > 0
+    result["hreflang_present"] = leg1_has_hreflang or leg2_has_hreflang or pw_has_hreflang
+
+    if leg1_has_hreflang:
+        result["hreflang_x_default_present"] = leg1["hreflang_x_default_href"] is not None
+        result["hreflang_x_default_url"] = leg1["hreflang_x_default_href"]
+
+    # hreflang_source
+    if leg1_has_hreflang:
+        result["hreflang_source"] = "html_head"
+    elif leg2_has_hreflang:
+        result["hreflang_source"] = "sitemap"
+    elif pw_has_hreflang:
+        result["hreflang_source"] = "js_injected"
+    else:
+        result["hreflang_source"] = "none"
+
+    # cookie_provider: leg1 script signal wins if found, else keep Playwright's
+    if leg1.get("cookie_provider"):
+        result["cookie_provider"] = leg1["cookie_provider"]
+        result["cookie_banner_detected"] = True
+
+    # landed_url from leg1 redirect chain
+    if leg1["success"]:
+        result["landed_url"] = leg1["landed_url"]
+
+    result["crawler_ran"] = True
+
+    plog(f"[merge] hreflang_source={result['hreflang_source']} | "
+         f"hreflang_present={result['hreflang_present']} | "
+         f"available_languages={result['available_languages']} | "
+         f"locale_urls={len(result['locale_urls'])}")
 
     return result
 
