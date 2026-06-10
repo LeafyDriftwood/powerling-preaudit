@@ -4,13 +4,7 @@ DataForSEO OnPage API — site crawl for Powerling Pre-Audit Pillar 2.
 Returns a dict of site crawl facts consumed by gather_pillar2_facts() in
 website_health.py.
 
-Pricing (pay-as-you-go, charged only for pages actually crawled):
-  basic only:          $0.000125/page  — all SEO fields, status codes
-  + load_resources:    $0.000375/page  — also detects broken images/CSS/scripts
-  + enable_javascript: $0.001250/page  — renders JS (React/Vue/Next CSR sites)
-
-Auth: HTTP Basic Auth
-  Set DATAFORSEO_LOGIN and DATAFORSEO_PASSWORD in backend/.env
+Auth: HTTP Basic Auth, with DATAFORSEO_LOGIN and DATAFORSEO_PASSWORD in backend/.env
 
 Docs: https://docs.dataforseo.com/v3/on_page/overview/
 """
@@ -27,13 +21,13 @@ except ImportError:
 import requests
 
 _BASE = "https://api.dataforseo.com/v3/on_page"
-_POLL_INTERVAL = 15    # seconds between summary polls
-_POLL_TIMEOUT = 1800   # give up after 30 min (large sites need 15-20 min)
-_PAGES_BATCH = 100     # DataForSEO max items per pages request
+_POLL_INTERVAL = 15  # seconds between summary polls
+_POLL_TIMEOUT = 1800 # give up after 30 min (large sites need 15-20 min)
+_PAGES_BATCH = 100 # DataForSEO max items per pages request
 _HTTP_TIMEOUT = 30
 _MAX_RETRIES = 3
-_BACKOFF_429 = 5       # seconds that doubles after each retry
-_BACKOFF_ERR = 2       # seconds for transient errors
+_BACKOFF_429 = 5 # seconds that doubles after each retry
+_BACKOFF_ERR = 2 # seconds for transient errors
 
 
 # ---------------------------------------------------------------------------
@@ -116,7 +110,7 @@ def _summary_check(summary_result: dict, key: str, default=None):
     """
     Extract an aggregate count from a DataForSEO summary result.
     Counts live either directly in page_metrics or in page_metrics.checks
-    depending on the field — try both.
+    depending on the field, try both.
     """
     pm = summary_result.get("page_metrics", {})
     if key in pm:
@@ -126,6 +120,7 @@ def _summary_check(summary_result: dict, key: str, default=None):
 
 
 def _cost_estimate(max_pages: int, enable_javascript: bool, load_resources: bool) -> float:
+    """Quick helper to calculate cost based on Dataforseo pricing"""
     basic = 0.000125
     factor = 1
     if enable_javascript:
@@ -164,7 +159,6 @@ def gather_site_crawl_facts_dataforseo(
       to them. Current implementation counts this from per-page checks.is_orphan_page.
       The summary page_metrics.checks may also expose is_orphan_page as an aggregate —
       if so, that would be simpler and consistent with how other fields are computed.
-      See PROJECT.md for the pending verification task.
 
     Extra fields added by DataForSEO (not in built-in crawler):
       - site_health_score         (0–100 onpage_score)
@@ -178,13 +172,12 @@ def gather_site_crawl_facts_dataforseo(
         "crawl_error": None,
         "pages_crawled": 0,
         "crawl_errors": 0,
-        "broken_internal_links": None,   # occurrence count unavailable from summary;
-                                         # falls back to broken_internal_urls below
-        "broken_internal_urls": None,    # unique broken URL count
+        "broken_internal_links": None,   # occurrence count unavailable from summary, falls back to broken_internal_urls below
+        "broken_internal_urls": None, # unique broken URL count
         "https_to_http_links": None,
-        "redirect_pages": None,          # all redirects (301 + 302 + other)
-        "permanent_redirects": None,     # 301 only
-        "temporary_redirects": None,     # 302 only
+        "redirect_pages": None, # all redirects (301 + 302 + other)
+        "permanent_redirects": None, # 301 only
+        "temporary_redirects": None, # 302 only
         "missing_title": None,
         "short_title": None,
         "long_title": None,
@@ -206,8 +199,8 @@ def gather_site_crawl_facts_dataforseo(
         "max_crawl_depth": None,
         "avg_crawl_depth": None,
         "pages_deep_crawl": None,
-        "sitemap_urls_count": None,        # not available
-        "orphan_pages": None,              # pages with no inbound internal links — see docstring
+        "sitemap_urls_count": None, # not available
+        "orphan_pages": None, # pages with no inbound internal links — see docstring
         "crawl_scope_note": None,
         # DataForSEO extras
         "site_health_score": None,
@@ -218,7 +211,7 @@ def gather_site_crawl_facts_dataforseo(
 
     try:
         parsed = urlparse(url)
-        target = parsed.netloc  # e.g. "example.com" — no protocol, no path
+        target = parsed.netloc  
 
         session = _session()
 
@@ -306,17 +299,16 @@ def gather_site_crawl_facts_dataforseo(
         result["thin_content_pages"] = _summary_check(summary_result, "low_content_rate", 0)
         result["duplicate_content_pages"] = _summary_check(summary_result, "duplicate_content", 0)
 
-        # Link / crawl health
+        # Link/crawl health
         result["broken_internal_urls"] = _summary_check(summary_result, "broken_links", 0)
         result["broken_resources_pages"] = _summary_check(summary_result, "broken_resources", 0)
         result["redirect_pages"] = _summary_check(summary_result, "is_redirect", 0)
         result["crawl_errors"] = _summary_check(summary_result, "is_broken", 0)
-        # Try summary fields for redirect type split (may or may not exist)
+        # try summary fields for redirect type split 
         result["permanent_redirects"] = _summary_check(summary_result, "is_301")
         result["temporary_redirects"] = _summary_check(summary_result, "is_302")
 
-        # broken_internal_links (occurrence count) is not in the summary.
-        # Use broken_internal_urls as a fallback so downstream consumers get a number.
+        # broken_internal_links (occurrence count) is not in the summary as mentioned earlier, use broken_internal_urls as a fallback 
         result["broken_internal_links"] = result["broken_internal_urls"]
 
         # ----------------------------------------------------------------
@@ -367,7 +359,7 @@ def gather_site_crawl_facts_dataforseo(
                 if cd is not None:
                     depths.append(cd)
 
-                # checks.canonical == True means canonical IS present and valid
+                # checks.canonical == True means canonical is present and valid
                 if not checks.get("canonical", True):
                     missing_canonical += 1
 
@@ -378,16 +370,14 @@ def gather_site_crawl_facts_dataforseo(
                 if h1s and title_text and h1s[0].strip().lower() == title_text:
                     h1_duplicates_title += 1
 
-                # DataForSEO has no per-page hreflang check in the checks dict;
-                # pages_without_hreflang stays None (not computable from pages endpoint)
+                # DataForSEO has no per-page hreflang check in the checks dict (according to their api)
+                # pages_without_hreflang stays None, since not computable from pages endpoint
 
-                # is_orphan_page is DataForSEO's native orphan signal (no inbound
-                # internal links AND not in sitemap) — more accurate than from_sitemap alone
+                # is_orphan_page is DataForSEO's native orphan signal (no inbound internal links and not in sitemap) — more accurate than from_sitemap alone
                 if checks.get("is_orphan_page", False):
                     orphan_count += 1
 
-                # Redirect type split — status_code on the item is the original
-                # response code before following (301/302); fall back if not present
+                # Redirect type split — status_code on the item is the original response code before following (301/302); fall back if not present
                 sc = item.get("status_code")
                 if sc == 301:
                     permanent_redirects += 1
