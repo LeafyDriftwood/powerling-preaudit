@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Powerling Pre-Audit Report — {{ company_name }}</title>
+<style>{{ css_content | safe }}</style>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+
+  :root {
+    --page-w: 210mm;
+    --page-h: 297mm;
+    --margin: 14mm;
+    --c-green:  #03A857;
+    --c-green-strong: #16a34a;
+    --c-lime:   #65a30d;
+    --c-amber:  #ca8a04;
+    --c-red:    #C8525A;
+    --c-blue:   #2f72c4;
+  }
+
+  html { background: #51635b; }
+  body {
+    margin: 0;
+    font-family: var(--pw-font-body);
+    color: var(--pw-fg);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  .deck { display: flex; flex-direction: column; align-items: center; gap: 10mm; padding: 14mm 0; }
+
+  .page {
+    position: relative;
+    width: var(--page-w);
+    min-height: var(--page-h);
+    background: var(--pw-paper);
+    box-shadow: 0 10px 40px rgba(0,0,0,0.28);
+    padding: var(--margin);
+    padding-bottom: 22mm;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .page-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding-bottom: 5mm; margin-bottom: 7mm; border-bottom: 1px solid var(--pw-border);
+  }
+  .page-head img { height: 17px; width: auto; display: block; }
+  .page-head .ph-meta {
+    font-family: var(--pw-font-mono); font-size: 8.5px; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--pw-fg-subtle);
+  }
+
+  .page-foot {
+    position: absolute; left: var(--margin); right: var(--margin); bottom: 10mm;
+    display: flex; align-items: center; justify-content: space-between;
+    font-family: var(--pw-font-mono); font-size: 8px; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--pw-fg-subtle);
+    border-top: 1px solid var(--pw-border); padding-top: 4mm;
+  }
+
+  .report-hero {
+    background: var(--pw-ink); color: #fff; border-radius: var(--pw-radius-lg);
+    padding: 26px 28px; position: relative; overflow: hidden; margin-bottom: 10mm;
+  }
+  .report-hero .ribbon {
+    position: absolute; inset: 0 0 auto 0; height: 5px; background: var(--pw-ribbon-full);
+  }
+  .report-hero .eyebrow {
+    font-family: var(--pw-font-mono); font-size: 10px; letter-spacing: 0.18em;
+    text-transform: uppercase; color: var(--pw-mint); margin: 0 0 10px;
+  }
+  .report-hero h1 {
+    font-family: var(--pw-font-display); font-weight: 500; font-size: 34px;
+    line-height: 1.05; letter-spacing: -0.02em; margin: 0 0 6px;
+  }
+  .report-hero a.url { color: var(--pw-mint-300); text-decoration: none; font-size: 14px; }
+  .report-hero .gen {
+    font-family: var(--pw-font-mono); font-size: 9.5px; letter-spacing: 0.05em;
+    color: var(--pw-fg-inverse-muted); margin-top: 14px; text-transform: uppercase;
+  }
+  .report-hero .hero-langs {
+    position: absolute; right: 28px; bottom: 24px; text-align: right;
+  }
+  .report-hero .hero-langs .big {
+    font-family: var(--pw-font-display); font-size: 40px; font-weight: 500; line-height: 1;
+  }
+  .report-hero .hero-langs .lbl { font-size: 10px; color: var(--pw-fg-inverse-muted); letter-spacing: 0.04em; }
+
+  section.block { margin-bottom: 9mm; }
+  section.block:last-child { margin-bottom: 0; }
+
+  .sec-title {
+    font-family: var(--pw-font-display); font-weight: 500; font-size: 19px;
+    letter-spacing: -0.01em; color: var(--pw-ink); margin: 0;
+  }
+  .sec-sub { font-size: 12.5px; color: var(--pw-forest); font-weight: 500; margin: 3px 0 0; }
+  .sec-head { margin-bottom: 10px; }
+
+  .card {
+    background: #fff; border: 1px solid var(--pw-border); border-radius: var(--pw-radius-md);
+    padding: 18px;
+  }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+
+  .exec-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+  .exec-list li { display: flex; gap: 12px; align-items: flex-start; }
+  .exec-num {
+    flex: 0 0 auto; width: 22px; height: 22px; border-radius: 999px;
+    background: var(--pw-bloc-100); color: var(--pw-forest);
+    font-size: 11px; font-weight: 600; display: flex; align-items: center; justify-content: center;
+    margin-top: 1px;
+  }
+  .exec-list li span.txt { font-size: 13.5px; line-height: 1.5; color: var(--pw-ink); }
+
+  .toprec-title {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--pw-fg-subtle); margin: 0 0 14px;
+  }
+  .toprec { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 11px; }
+  .toprec li { display: flex; gap: 12px; align-items: flex-start; }
+  .toprec .n {
+    flex: 0 0 auto; width: 24px; height: 24px; border-radius: 999px;
+    background: #eaf1fb; color: var(--c-blue);
+    font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center;
+  }
+  .toprec li span.txt { font-size: 12.5px; line-height: 1.5; color: var(--pw-fg-muted); }
+
+  .fr-h {
+    font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--pw-fg-subtle); margin: 0 0 8px;
+  }
+  .fr-block + .fr-block { margin-top: 16px; }
+  .fr-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+  .fr-list li { display: flex; gap: 8px; font-size: 12.5px; line-height: 1.45; color: var(--pw-ink); }
+  .fr-list.findings li .bullet { color: var(--pw-mint-600); font-weight: 700; flex: 0 0 auto; }
+  .fr-list.recs li .num { color: var(--c-blue); font-weight: 700; flex: 0 0 auto; }
+
+  .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .tile {
+    background: var(--pw-bloc-50); border: 1px solid var(--pw-bloc-200);
+    border-radius: var(--pw-radius-sm); padding: 11px 12px;
+  }
+  .tile .lbl { font-size: 10.5px; color: var(--pw-fg-subtle); margin: 0 0 4px; }
+  .tile .val { font-size: 14px; font-weight: 600; margin: 0; }
+  .tile .val.lg { font-size: 18px; }
+  .pos { color: var(--c-green); }
+  .neg { color: var(--c-red); }
+  .warn { color: var(--c-amber); }
+  .muted { color: var(--pw-fg-subtle); }
+
+  .lcr-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+  .lcr-donut { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .lcr-donut .tier { font-size: 11px; font-weight: 500; color: var(--pw-fg-muted); }
+  .lcr-side { text-align: right; }
+  .lcr-side .cap { font-size: 10.5px; color: var(--pw-fg-subtle); }
+  .lcr-side .big { font-size: 26px; font-weight: 600; color: var(--pw-ink); line-height: 1.1; }
+  .lcr-side .of { font-size: 10.5px; color: var(--pw-fg-subtle); }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+  .chip { font-size: 10.5px; font-weight: 500; padding: 2px 8px; border-radius: 6px; }
+  .chip.lang { background: var(--pw-bloc-100); color: var(--pw-forest); }
+  .chip.reg  { background: #eaf1fb; color: var(--c-blue); }
+  .chips-cap { font-size: 10.5px; color: var(--pw-fg-subtle); margin: 0; }
+
+  .psi-h { font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--pw-fg-subtle); margin: 0 0 10px; }
+  .psi { margin-bottom: 11px; }
+  .psi-top { display: flex; justify-content: space-between; font-size: 11px; color: var(--pw-fg-muted); margin-bottom: 4px; }
+  .psi-top .sc { font-weight: 700; }
+  .bar { height: 7px; background: #eef1ef; border-radius: 999px; overflow: hidden; }
+  .bar > span { display: block; height: 100%; border-radius: 999px; }
+
+  .rev-h { font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--pw-fg-subtle); margin: 0 0 10px; }
+  .rev { display: flex; align-items: center; gap: 10px; margin-bottom: 9px; }
+  .rev .plat { width: 78px; font-size: 11.5px; color: var(--c-blue); flex: 0 0 auto; }
+  .rev .track { flex: 1; height: 7px; background: #eef1ef; border-radius: 999px; overflow: hidden; }
+  .rev .track > span { display: block; height: 100%; background: var(--pw-mint-500); border-radius: 999px; }
+  .rev .num { font-size: 11.5px; font-weight: 600; color: var(--pw-ink); width: 22px; text-align: right; flex: 0 0 auto; }
+  .rev .cnt { font-size: 10px; color: var(--pw-fg-subtle); width: 64px; text-align: right; flex: 0 0 auto; }
+
+  .soc-h { font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--pw-fg-subtle); margin: 16px 0 8px; }
+  .soc { display: flex; align-items: center; justify-content: space-between; font-size: 12px; padding: 2px 0; }
+  .soc .p { color: var(--pw-fg-muted); text-transform: capitalize; }
+  .soc .v { font-weight: 600; color: var(--pw-ink); }
+
+  table.comp { width: 100%; border-collapse: collapse; font-size: 12px; overflow: hidden; border-radius: var(--pw-radius-md); }
+  table.comp thead th {
+    background: var(--pw-bloc-50); text-align: left; padding: 9px 12px;
+    font-size: 10.5px; font-weight: 600; color: var(--pw-fg-muted);
+    border-bottom: 1px solid var(--pw-border);
+  }
+  table.comp tbody td { padding: 9px 12px; border-bottom: 1px solid var(--pw-bloc-100); vertical-align: middle; }
+  table.comp tbody tr.client { background: var(--pw-bloc-100); }
+  table.comp tbody tr:last-child td { border-bottom: none; }
+  table.comp .co { font-weight: 600; color: var(--pw-ink); }
+  table.comp .tagclient { font-size: 9.5px; color: var(--pw-forest); font-weight: 400; margin-left: 6px; }
+  .lcr-cell { display: flex; align-items: center; gap: 8px; }
+  .lcr-cell .mini { width: 70px; height: 6px; background: #eef1ef; border-radius: 999px; overflow: hidden; }
+  .lcr-cell .mini > span { display: block; height: 100%; border-radius: 999px; }
+  .lcr-cell .pct { font-weight: 600; }
+  .tierbadge { font-size: 10px; font-weight: 500; padding: 2px 8px; border-radius: 999px; }
+  .tier-full    { background: #dcfce7; color: #15803d; }
+  .tier-strong  { background: #ecfccb; color: #4d7c0f; }
+  .tier-partial { background: #fef9c3; color: #a16207; }
+  .tier-limited { background: #fee2e2; color: #b91c1c; }
+
+  .land-summary { font-size: 12.5px; line-height: 1.55; color: var(--pw-ink); margin: 0 0 14px; }
+  .land-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .land-h { font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; margin: 0 0 8px; }
+  .land-h.adv { color: var(--pw-mint-600); }
+  .land-h.gap { color: var(--c-red); }
+  .land-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  .land-list li { display: flex; gap: 8px; font-size: 12px; line-height: 1.4; color: var(--pw-ink); }
+  .land-list .s { flex: 0 0 auto; font-weight: 700; }
+  .land-list.adv .s { color: var(--pw-mint-600); }
+  .land-list.gap .s { color: var(--c-red); }
+
+  .issues-h { font-size: 10.5px; color: var(--pw-fg-subtle); margin: 14px 0 6px; }
+  .issues { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+  .issues li { display: flex; gap: 7px; font-size: 11.5px; color: #b04a52; line-height: 1.4; }
+  .issues li .b { color: var(--c-red); font-weight: 700; flex: 0 0 auto; }
+
+  @page { size: A4; margin: 0; }
+  @media print {
+    html { background: #fff; }
+    .deck { gap: 0; padding: 0; }
+    .page { box-shadow: none; margin: 0; width: var(--page-w); height: var(--page-h); page-break-after: always; break-after: page; }
+    .page:last-child { page-break-after: auto; break-after: auto; }
+  }
+</style>
+</head>
+<body>
+<div class="deck">
+
+  <!-- PAGE 1 -->
+  <div class="page">
+    <div class="page-head">
+      <img src="{{ logo_url }}" alt="Powerling" />
+      <div class="ph-meta">Pre-Audit Report</div>
+    </div>
+
+    <div class="report-hero">
+      <div class="ribbon"></div>
+      <p class="eyebrow">Digital Globalization Pre-Audit</p>
+      <h1>{{ company_name }}</h1>
+      <a class="url" href="{{ url }}">{{ url }}</a>
+      <p class="gen">Generated {{ generated_date }}</p>
+      <div class="hero-langs">
+        <div class="big">{{ p1.lcr_score }}%</div>
+        <div class="lbl">Language Coverage Rate</div>
+      </div>
+    </div>
+
+    <section class="block">
+      <div class="sec-head"><h2 class="sec-title">Executive Summary</h2></div>
+      <div class="card">
+        <ul class="exec-list">
+          {% for item in (ui.executive_summary or []) %}
+          <li><span class="exec-num">{{ loop.index }}</span><span class="txt">{{ item }}</span></li>
+          {% endfor %}
+        </ul>
+      </div>
+    </section>
+
+    <section class="block">
+      <div class="card">
+        <h3 class="toprec-title">Top Cross-Pillar Recommendations</h3>
+        <ol class="toprec">
+          {% for rec in (ui.top_recommendations or []) %}
+          <li><span class="n">{{ loop.index }}</span><span class="txt">{{ rec }}</span></li>
+          {% endfor %}
+        </ol>
+      </div>
+    </section>
+
+    <div class="page-foot">
+      <span>Powerling · Confidential</span>
+      <span>{{ company_name }}</span>
+      <span>Page 1 of 4</span>
+    </div>
+  </div>
+
+  <!-- PAGE 2 -->
+  <div class="page">
+    <div class="page-head">
+      <img src="{{ logo_url }}" alt="Powerling" />
+      <div class="ph-meta">Pre-Audit Report</div>
+    </div>
+
+    <!-- Pillar 1 -->
+    <section class="block">
+      <div class="sec-head">
+        <h2 class="sec-title">Pillar 1 — Globalization</h2>
+        <p class="sec-sub">{{ (ui.pillar_1 or {}).get('headline', '') }}</p>
+      </div>
+      <div class="grid2">
+        <div class="card">
+          <div class="lcr-row">
+            <div class="lcr-donut">
+              <svg width="92" height="92" viewBox="0 0 100 100">
+                <circle cx="50" cy="50" r="38" fill="none" stroke="#eef1ef" stroke-width="10"></circle>
+                <circle cx="50" cy="50" r="38" fill="none" stroke="{{ lcr_donut_color }}" stroke-width="10"
+                  stroke-dasharray="{{ lcr_arc }} 238.8" stroke-linecap="round" transform="rotate(-90 50 50)"></circle>
+                <text x="50" y="47" text-anchor="middle" font-size="17" font-weight="700" fill="#17271F" font-family="Atyp Text">{{ p1.lcr_score }}%</text>
+                <text x="50" y="61" text-anchor="middle" font-size="9" fill="#6E857B" font-family="Atyp Text">LCR</text>
+              </svg>
+              <span class="tier">{{ p1.lcr_tier }}</span>
+            </div>
+            <div class="lcr-side">
+              <div class="cap">Languages available</div>
+              <div class="big">{{ p1.lcr_available }}</div>
+              <div class="of">of {{ p1.lcr_required }} required</div>
+            </div>
+          </div>
+
+          <div class="tiles">
+            <div class="tile">
+              <p class="lbl">Hreflang</p>
+              <p class="val {% if p1.hreflang_present %}pos{% else %}neg{% endif %}">{% if p1.hreflang_present %}Present{% else %}Missing{% endif %}</p>
+            </div>
+            <div class="tile">
+              <p class="lbl">x-default</p>
+              <p class="val {% if p1.hreflang_x_default_present %}pos{% else %}neg{% endif %}">{% if p1.hreflang_x_default_present %}Present{% else %}Missing{% endif %}</p>
+            </div>
+            <div class="tile">
+              <p class="lbl">Mixed language issues</p>
+              <p class="val {% if ml_count %}neg{% else %}pos{% endif %}">{% if ml_count %}{{ ml_count }} locale(s){% else %}None{% endif %}</p>
+            </div>
+            <div class="tile">
+              <p class="lbl">Monthly traffic</p>
+              <p class="val">{{ p1.estimated_monthly_traffic or 'Unknown' }}</p>
+            </div>
+          </div>
+
+          {% set avail_langs = p1.available_languages or [] %}
+          {% if avail_langs %}
+          <p class="chips-cap" style="margin-top:14px;">Available languages</p>
+          <div class="chips">
+            {% for code in avail_langs %}
+            <span class="chip lang">{{ code }}</span>
+            {% endfor %}
+          </div>
+          {% endif %}
+
+          {% if required_not_covered %}
+          <p class="chips-cap" style="margin-top:10px;">Required, not yet covered</p>
+          <div class="chips">
+            {% for code in required_not_covered %}
+            <span class="chip reg">{{ code }}</span>
+            {% endfor %}
+          </div>
+          {% endif %}
+        </div>
+
+        <div class="card">
+          {% set p1_ui = ui.pillar_1 or {} %}
+          <div class="fr-block">
+            <p class="fr-h">Key Findings</p>
+            <ul class="fr-list findings">
+              {% for f in (p1_ui.get('findings') or []) %}
+              <li><span class="bullet">•</span><span>{{ f }}</span></li>
+              {% endfor %}
+            </ul>
+          </div>
+          <div class="fr-block">
+            <p class="fr-h">Recommendations</p>
+            <ul class="fr-list recs">
+              {% for r in (p1_ui.get('recommendations') or []) %}
+              <li><span class="num">{{ loop.index }}.</span><span>{{ r }}</span></li>
+              {% endfor %}
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Pillar 2 -->
+    <section class="block">
+      <div class="sec-head">
+        <h2 class="sec-title">Pillar 2 — Website Health</h2>
+        <p class="sec-sub">{{ (ui.pillar_2 or {}).get('headline', '') }}</p>
+      </div>
+      <div class="grid2">
+        <div class="card">
+          <p class="psi-h">PageSpeed Insights</p>
+          {% set perf_m  = p2.performance_score_mobile %}
+          {% set perf_d  = p2.performance_score_desktop %}
+          {% set seo_m   = p2.seo_score_mobile %}
+          {% set acc_m   = p2.accessibility_score_mobile %}
+          <div class="psi">
+            <div class="psi-top"><span>Performance (Mobile)</span><span class="sc {{ score_class(perf_m) }}">{{ perf_m if perf_m is not none else 'N/A' }}</span></div>
+            <div class="bar"><span style="width:{{ perf_m or 0 }}%;background:{{ score_color(perf_m) }};"></span></div>
+          </div>
+          <div class="psi">
+            <div class="psi-top"><span>Performance (Desktop)</span><span class="sc {{ score_class(perf_d) }}">{{ perf_d if perf_d is not none else 'N/A' }}</span></div>
+            <div class="bar"><span style="width:{{ perf_d or 0 }}%;background:{{ score_color(perf_d) }};"></span></div>
+          </div>
+          <div class="psi">
+            <div class="psi-top"><span>SEO Score (Mobile)</span><span class="sc {{ score_class(seo_m) }}">{{ seo_m if seo_m is not none else 'N/A' }}</span></div>
+            <div class="bar"><span style="width:{{ seo_m or 0 }}%;background:{{ score_color(seo_m) }};"></span></div>
+          </div>
+          <div class="psi">
+            <div class="psi-top"><span>Accessibility Score (Mobile)</span><span class="sc {{ score_class(acc_m) }}">{{ acc_m if acc_m is not none else 'N/A' }}</span></div>
+            <div class="bar"><span style="width:{{ acc_m or 0 }}%;background:{{ score_color(acc_m) }};"></span></div>
+          </div>
+
+          {% set health = p2.site_health_score %}
+          {% set lcp = p2.lcp_mobile %}
+          {% set broken = p2.broken_internal_urls %}
+          {% set missing_meta = p2.missing_meta_descriptions %}
+          <div class="tiles" style="margin-top:14px;">
+            <div class="tile">
+              <p class="lbl">Site health score</p>
+              <p class="val lg {{ score_class(health) }}">{{ health if health is not none else 'N/A' }}{% if health is not none %}/100{% endif %}</p>
+            </div>
+            <div class="tile">
+              <p class="lbl">LCP Mobile</p>
+              <p class="val">{{ lcp or 'N/A' }}</p>
+            </div>
+            <div class="tile">
+              <p class="lbl">Broken links</p>
+              <p class="val {% if broken %}neg{% else %}pos{% endif %}">{{ broken if broken is not none else 'N/A' }}</p>
+            </div>
+            <div class="tile">
+              <p class="lbl">Missing meta desc.</p>
+              <p class="val {% if missing_meta %}warn{% else %}pos{% endif %}">{{ missing_meta if missing_meta is not none else 'N/A' }}</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          {% set p2_ui = ui.pillar_2 or {} %}
+          <div class="fr-block">
+            <p class="fr-h">Key Findings</p>
+            <ul class="fr-list findings">
+              {% for f in (p2_ui.get('findings') or []) %}
+              <li><span class="bullet">•</span><span>{{ f }}</span></li>
+              {% endfor %}
+            </ul>
+          </div>
+          <div class="fr-block">
+            <p class="fr-h">Recommendations</p>
+            <ul class="fr-list recs">
+              {% for r in (p2_ui.get('recommendations') or []) %}
+              <li><span class="num">{{ loop.index }}.</span><span>{{ r }}</span></li>
+              {% endfor %}
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="page-foot">
+      <span>Powerling · Confidential</span>
+      <span>{{ company_name }}</span>
+      <span>Page 2 of 4</span>
+    </div>
+  </div>
+
+  <!-- PAGE 3 -->
+  <div class="page">
+    <div class="page-head">
+      <img src="{{ logo_url }}" alt="Powerling" />
+      <div class="ph-meta">Pre-Audit Report</div>
+    </div>
+
+    <!-- Pillar 3 -->
+    <section class="block">
+      <div class="sec-head">
+        <h2 class="sec-title">Pillar 3 — Accessibility &amp; Compliance</h2>
+        <p class="sec-sub">{{ (ui.pillar_3 or {}).get('headline', '') }}</p>
+      </div>
+      <div class="grid2">
+        <div class="card">
+          <div class="tiles">
+            <div class="tile">
+              <p class="lbl">WCAG level</p>
+              {% set wcag = p3.wcag_level_claimed or 'Undeclared' %}
+              <p class="val {% if wcag|lower == 'undeclared' %}muted{% else %}pos{% endif %}">{{ wcag }}</p>
+            </div>
+            <div class="tile">
+              <p class="lbl">Accessibility statement</p>
+              <p class="val {% if p3.has_accessibility_statement %}pos{% else %}neg{% endif %}">{% if p3.has_accessibility_statement %}Yes{% else %}No{% endif %}</p>
+            </div>
+            <div class="tile">
+              <p class="lbl">Cookie consent</p>
+              <p class="val {% if p3.has_cookie_banner %}pos{% else %}neg{% endif %}">{% if p3.has_cookie_banner %}Yes{% else %}No{% endif %}</p>
+            </div>
+            <div class="tile">
+              <p class="lbl">Primary region</p>
+              <p class="val">{{ p3.primary_region or 'Unknown' }}</p>
+            </div>
+          </div>
+
+          {% set regs = p3.applicable_regulations or [] %}
+          {% if regs %}
+          <p class="chips-cap" style="margin-top:14px;">Applicable regulations</p>
+          <div class="chips">
+            {% for reg in regs %}
+            <span class="chip reg">{{ reg }}</span>
+            {% endfor %}
+          </div>
+          {% endif %}
+
+          {% set issues = p3.wcag_issues or [] %}
+          {% if issues %}
+          <p class="issues-h">Issues identified</p>
+          <ul class="issues">
+            {% for issue in issues[:3] %}
+            <li><span class="b">!</span><span>{{ issue }}</span></li>
+            {% endfor %}
+          </ul>
+          {% endif %}
+        </div>
+
+        <div class="card">
+          {% set p3_ui = ui.pillar_3 or {} %}
+          <div class="fr-block">
+            <p class="fr-h">Key Findings</p>
+            <ul class="fr-list findings">
+              {% for f in (p3_ui.get('findings') or []) %}
+              <li><span class="bullet">•</span><span>{{ f }}</span></li>
+              {% endfor %}
+            </ul>
+          </div>
+          <div class="fr-block">
+            <p class="fr-h">Recommendations</p>
+            <ul class="fr-list recs">
+              {% for r in (p3_ui.get('recommendations') or []) %}
+              <li><span class="num">{{ loop.index }}.</span><span>{{ r }}</span></li>
+              {% endfor %}
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Pillar 4 -->
+    <section class="block">
+      <div class="sec-head">
+        <h2 class="sec-title">Pillar 4 — Online Reputation</h2>
+        <p class="sec-sub">{{ (ui.pillar_4 or {}).get('headline', '') }}</p>
+      </div>
+      <div class="grid2">
+        <div class="card">
+          {% set has_reviews = p4.trustpilot_score or p4.glassdoor_score or p4.indeed_score %}
+          {% if has_reviews %}
+          <p class="rev-h">Review Ratings</p>
+          {% if p4.trustpilot_score %}
+          <div class="rev">
+            <span class="plat">Trustpilot</span>
+            <span class="track"><span style="width:{{ ((p4.trustpilot_score or 0) / 5 * 100)|int }}%;"></span></span>
+            <span class="num">{{ p4.trustpilot_score }}</span>
+            <span class="cnt">{{ p4.trustpilot_reviews or '?' }} reviews</span>
+          </div>
+          {% endif %}
+          {% if p4.glassdoor_score %}
+          <div class="rev">
+            <span class="plat">Glassdoor</span>
+            <span class="track"><span style="width:{{ ((p4.glassdoor_score or 0) / 5 * 100)|int }}%;"></span></span>
+            <span class="num">{{ p4.glassdoor_score }}</span>
+            <span class="cnt">{{ p4.glassdoor_reviews or '?' }} reviews</span>
+          </div>
+          {% endif %}
+          {% if p4.indeed_score %}
+          <div class="rev">
+            <span class="plat">Indeed</span>
+            <span class="track"><span style="width:{{ ((p4.indeed_score or 0) / 5 * 100)|int }}%;"></span></span>
+            <span class="num">{{ p4.indeed_score }}</span>
+            <span class="cnt">{{ p4.indeed_reviews or '?' }} reviews</span>
+          </div>
+          {% endif %}
+          {% endif %}
+
+          {% set social = p4.social_media or {} %}
+          {% set social_items = [] %}
+          {% for platform, data in social.items() %}
+            {% if data is mapping and (data.get('url') or data.get('followers') or data.get('subscribers')) %}
+              {% set _ = social_items.append((platform, data)) %}
+            {% endif %}
+          {% endfor %}
+          {% if social_items %}
+          <p class="soc-h">Social Media</p>
+          {% for platform, data in social_items %}
+          <div class="soc">
+            <span class="p">{{ platform | capitalize }}</span>
+            <span class="v">{{ data.get('followers') or data.get('subscribers') or 'N/A' }}</span>
+          </div>
+          {% endfor %}
+          {% endif %}
+        </div>
+
+        <div class="card">
+          {% set p4_ui = ui.pillar_4 or {} %}
+          <div class="fr-block">
+            <p class="fr-h">Key Findings</p>
+            <ul class="fr-list findings">
+              {% for f in (p4_ui.get('findings') or []) %}
+              <li><span class="bullet">•</span><span>{{ f }}</span></li>
+              {% endfor %}
+            </ul>
+          </div>
+          <div class="fr-block">
+            <p class="fr-h">Recommendations</p>
+            <ul class="fr-list recs">
+              {% for r in (p4_ui.get('recommendations') or []) %}
+              <li><span class="num">{{ loop.index }}.</span><span>{{ r }}</span></li>
+              {% endfor %}
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="page-foot">
+      <span>Powerling · Confidential</span>
+      <span>{{ company_name }}</span>
+      <span>Page 3 of 4</span>
+    </div>
+  </div>
+
+  <!-- PAGE 4 -->
+  <div class="page">
+    <div class="page-head">
+      <img src="{{ logo_url }}" alt="Powerling" />
+      <div class="ph-meta">Pre-Audit Report</div>
+    </div>
+
+    <section class="block">
+      <div class="sec-head">
+        <h2 class="sec-title">Competitive Landscape</h2>
+        <p class="sec-sub">How the client compares to the competitive set</p>
+      </div>
+
+      <div class="card" style="padding:0; margin-bottom:14px;">
+        <table class="comp">
+          <thead>
+            <tr><th>Company</th><th>LCR Score</th><th>Tier</th><th>Languages</th></tr>
+          </thead>
+          <tbody>
+            <tr class="client">
+              <td class="co">{{ company_name }}<span class="tagclient">(client)</span></td>
+              <td>
+                <div class="lcr-cell">
+                  <span class="mini"><span style="width:{{ p1.lcr_score }}%;background:{{ lcr_donut_color }};"></span></span>
+                  <span class="pct {{ score_class_lcr(p1.lcr_score) }}">{{ p1.lcr_score }}%</span>
+                </div>
+              </td>
+              <td><span class="tierbadge {{ tier_class(p1.lcr_tier) }}">{{ p1.lcr_tier }}</span></td>
+              <td>{{ p1.lcr_available }}</td>
+            </tr>
+            {% for comp in cf %}
+            {% set comp_lcr = comp.lcr_score or 0 %}
+            {% set comp_avail = (comp.available_languages or [])|length %}
+            <tr>
+              <td class="co">{{ comp.company_name }}</td>
+              <td>
+                <div class="lcr-cell">
+                  <span class="mini"><span style="width:{{ comp_lcr }}%;background:{{ lcr_bar_color(comp_lcr) }};"></span></span>
+                  <span class="pct {{ score_class_lcr(comp_lcr) }}">{{ comp_lcr }}%</span>
+                </div>
+              </td>
+              <td><span class="tierbadge {{ tier_class(comp.lcr_tier) }}">{{ comp.lcr_tier }}</span></td>
+              <td>{{ comp_avail }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      {% set cl = ui.competitive_landscape or {} %}
+      <div class="card">
+        {% if cl.get('summary') %}
+        <p class="land-summary">{{ cl.summary }}</p>
+        {% endif %}
+        <div class="land-grid">
+          <div>
+            <p class="land-h adv">Advantages</p>
+            <ul class="land-list adv">
+              {% for adv in (cl.get('client_advantages') or []) %}
+              <li><span class="s">+</span><span>{{ adv }}</span></li>
+              {% endfor %}
+            </ul>
+          </div>
+          <div>
+            <p class="land-h gap">Gaps</p>
+            <ul class="land-list gap">
+              {% for gap in (cl.get('client_gaps') or []) %}
+              <li><span class="s">−</span><span>{{ gap }}</span></li>
+              {% endfor %}
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="page-foot">
+      <span>Powerling · Confidential</span>
+      <span>{{ company_name }}</span>
+      <span>Page 4 of 4</span>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

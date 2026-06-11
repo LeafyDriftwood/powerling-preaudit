@@ -1,0 +1,339 @@
+/* =========================================================
+   POWERLING DESIGN SYSTEM — Tokens
+   Colors, typography, spacing, radii, shadows, motion
+   ========================================================= */
+
+/* ---------- FONTS ----------
+   Brand font: Atyp Text (Suitcase Type Foundry).
+   Files are shipped in fonts/ — loaded directly via @font-face.
+   Roboto Mono is used for monospace (code, labels).
+*/
+@font-face {
+  font-family: 'Atyp Text';
+  src: url('fonts/AtypText-Regular.otf') format('opentype');
+  /* path relative to assets/ */
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Atyp Text';
+  src: url('fonts/AtypText-Medium.otf') format('opentype');
+  /* medium */
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Atyp Text';
+  src: url('fonts/AtypText-MediumItalic.otf') format('opentype');
+  font-weight: 500;
+  font-style: italic;
+  font-display: swap;
+}
+@import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500&display=swap');
+
+:root {
+  /* ===== BRAND COLORS ===== */
+  --pw-ink:        #17271F; /* Primary — header & footer backgrounds, body copy on light */
+  --pw-bloc:       #F0F9F5; /* Secondary — light "bloc" panels & section breaks */
+  --pw-mint:       #03D966; /* CTA + pictograms */
+
+  /* Tonal scale extended from the brand trio (used carefully) */
+  --pw-ink-900:    #0E1813; /* Deeper ink for hover/press on dark surfaces */
+  --pw-ink-800:    #17271F; /* = ink */
+  --pw-ink-700:    #243A30; /* Subtle dark surface lift */
+  --pw-ink-600:    #36544A; /* Tertiary text on dark */
+  --pw-ink-500:    #5A776C; /* Muted text on dark */
+
+  --pw-paper:      #FFFFFF;
+  --pw-bloc-50:    #F7FCF9; /* Lightest bloc */
+  --pw-bloc-100:   #F0F9F5; /* = bloc */
+  --pw-bloc-200:   #DDEEE4; /* Border / divider on light */
+  --pw-bloc-300:   #B8D7C7; /* Stronger divider, focus ring on light */
+
+  --pw-mint-300:   #6FECA8;
+  --pw-mint-400:   #2BE383;
+  --pw-mint-500:   #03D966; /* = mint */
+  --pw-mint-600:   #02B854; /* Hover */
+  --pw-mint-700:   #029645; /* Press */
+
+  /* Gradient ribbon palette — the signature visual motif.
+     Sampled from branding reference. Use as multi-stop linear gradients.
+  */
+  /* Extended palette — from PPTX theme */
+  --pw-forest:     #096231; /* Dark forest green — supporting accent */
+  --pw-pale-mint:  #D2EDDF; /* Pale mint — subtle tint for hover states */
+
+  --pw-ribbon-coral:   #D4623A;
+  --pw-ribbon-amber:   #C8933A;
+  --pw-ribbon-rose:    #B84850;
+  --pw-ribbon-violet:  #7E5A8E;
+  --pw-ribbon-sky:     #5B9EB8;
+  --pw-ribbon-teal:    #4A8EA0;
+  --pw-ribbon-mist:    #9FC4CF;
+
+  --pw-ribbon-warm:
+    linear-gradient(90deg,
+      var(--pw-ribbon-rose)   0%,
+      var(--pw-ribbon-coral) 35%,
+      var(--pw-ribbon-amber) 100%);
+  --pw-ribbon-cool:
+    linear-gradient(90deg,
+      var(--pw-ribbon-violet) 0%,
+      var(--pw-ribbon-sky)   45%,
+      var(--pw-ribbon-mist) 100%);
+  --pw-ribbon-full:
+    linear-gradient(90deg,
+      var(--pw-ribbon-rose)    0%,
+      var(--pw-ribbon-coral)  20%,
+      var(--pw-ribbon-amber)  42%,
+      var(--pw-ribbon-teal)   65%,
+      var(--pw-ribbon-sky)    85%,
+      var(--pw-ribbon-mist) 100%);
+
+  /* ===== SEMANTIC ROLES ===== */
+  --pw-bg:           var(--pw-paper);
+  --pw-bg-alt:       var(--pw-bloc-100);
+  --pw-bg-inverse:   var(--pw-ink);
+
+  --pw-fg:           var(--pw-ink);          /* Primary text on light */
+  --pw-fg-muted:     #4A6157;                /* Secondary text on light */
+  --pw-fg-subtle:    #6E857B;                /* Tertiary text on light */
+  --pw-fg-inverse:   #FFFFFF;                /* Primary text on ink */
+  --pw-fg-inverse-muted: #B6C5BD;            /* Secondary text on ink */
+
+  --pw-border:       var(--pw-bloc-200);
+  --pw-border-strong:var(--pw-bloc-300);
+  --pw-border-inverse: rgba(255,255,255,0.12);
+
+  --pw-accent:       var(--pw-mint);
+  --pw-accent-hover: var(--pw-mint-600);
+  --pw-accent-press: var(--pw-mint-700);
+  --pw-accent-fg:    var(--pw-ink);          /* Text on mint */
+
+  --pw-link:         var(--pw-ink);
+  --pw-link-hover:   var(--pw-mint-600);
+  --pw-focus:        var(--pw-mint);
+
+  /* Status (derived; brand has no formal semantic palette) */
+  --pw-success:      #03A857;
+  --pw-warning:      #E0A800;
+  --pw-danger:       #C8525A;
+  --pw-info:         #4A9DB8;
+
+  /* ===== TYPOGRAPHY ===== */
+  --pw-font-display: 'Atyp Text', system-ui, -apple-system, sans-serif;
+  --pw-font-body:    'Atyp Text', system-ui, -apple-system, sans-serif;
+  --pw-font-mono:    'Roboto Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  /* Type scale — semi-fluid, optimized for marketing pages */
+  --pw-text-xs:   12px;
+  --pw-text-sm:   14px;
+  --pw-text-base: 16px;
+  --pw-text-md:   18px;
+  --pw-text-lg:   20px;
+  --pw-text-xl:   24px;
+  --pw-text-2xl:  32px;
+  --pw-text-3xl:  44px;
+  --pw-text-4xl:  60px;
+  --pw-text-5xl:  84px;  /* Hero */
+
+  --pw-leading-tight:  1.05;
+  --pw-leading-snug:   1.2;
+  --pw-leading-normal: 1.45;
+  --pw-leading-loose:  1.65;
+
+  --pw-tracking-tight:  -0.02em;
+  --pw-tracking-normal: 0;
+  --pw-tracking-wide:   0.04em;
+  --pw-tracking-caps:   0.12em;
+
+  /* ===== SPACING (4px base) ===== */
+  --pw-space-1:  4px;
+  --pw-space-2:  8px;
+  --pw-space-3:  12px;
+  --pw-space-4:  16px;
+  --pw-space-5:  24px;
+  --pw-space-6:  32px;
+  --pw-space-7:  48px;
+  --pw-space-8:  64px;
+  --pw-space-9:  96px;
+  --pw-space-10: 128px;
+
+  /* ===== RADII =====
+     Powerling uses softly rounded pill buttons + lightly rounded cards.
+  */
+  --pw-radius-sm:   6px;
+  --pw-radius-md:   12px;
+  --pw-radius-lg:   20px;
+  --pw-radius-xl:   28px;
+  --pw-radius-pill: 999px;
+
+  /* ===== SHADOWS =====
+     Restrained — the brand mostly relies on flat blocs + ribbons,
+     not heavy elevation.
+  */
+  --pw-shadow-xs: 0 1px 2px rgba(23,39,31,0.06);
+  --pw-shadow-sm: 0 2px 6px rgba(23,39,31,0.06), 0 1px 2px rgba(23,39,31,0.04);
+  --pw-shadow-md: 0 8px 24px rgba(23,39,31,0.08), 0 2px 6px rgba(23,39,31,0.05);
+  --pw-shadow-lg: 0 24px 60px rgba(23,39,31,0.14), 0 6px 16px rgba(23,39,31,0.06);
+  --pw-shadow-mint: 0 8px 24px rgba(3,217,102,0.25);
+
+  /* ===== MOTION ===== */
+  --pw-ease-out:   cubic-bezier(0.22, 1, 0.36, 1);
+  --pw-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --pw-dur-fast: 140ms;
+  --pw-dur-base: 240ms;
+  --pw-dur-slow: 480ms;
+  --pw-dur-ribbon: 14s; /* slow ambient ribbon drift */
+
+  /* ===== LAYOUT ===== */
+  --pw-container:    1240px;
+  --pw-container-sm: 880px;
+  --pw-gutter:       24px;
+}
+
+/* =========================================================
+   SEMANTIC ELEMENT STYLES
+   Apply by adding the matching class, OR scope these globally.
+   ========================================================= */
+
+.pw-h1, .pw-display {
+  font-family: var(--pw-font-display);
+  font-weight: 400;
+  font-size: clamp(44px, 5.6vw, var(--pw-text-5xl));
+  line-height: var(--pw-leading-tight);
+  letter-spacing: var(--pw-tracking-tight);
+  color: var(--pw-fg);
+  text-wrap: balance;
+}
+
+.pw-h2 {
+  font-family: var(--pw-font-display);
+  font-weight: 400;
+  font-size: clamp(32px, 3.4vw, var(--pw-text-4xl));
+  line-height: var(--pw-leading-snug);
+  letter-spacing: var(--pw-tracking-tight);
+  color: var(--pw-fg);
+  text-wrap: balance;
+}
+
+.pw-h3 {
+  font-family: var(--pw-font-display);
+  font-weight: 500;
+  font-size: var(--pw-text-2xl);
+  line-height: var(--pw-leading-snug);
+  letter-spacing: var(--pw-tracking-tight);
+  color: var(--pw-fg);
+}
+
+.pw-h4 {
+  font-family: var(--pw-font-display);
+  font-weight: 500;
+  font-size: var(--pw-text-xl);
+  line-height: var(--pw-leading-snug);
+  color: var(--pw-fg);
+}
+
+.pw-eyebrow {
+  font-family: var(--pw-font-body);
+  font-weight: 500;
+  font-size: var(--pw-text-sm);
+  letter-spacing: var(--pw-tracking-caps);
+  text-transform: uppercase;
+  color: var(--pw-fg-muted);
+}
+
+.pw-p, .pw-body {
+  font-family: var(--pw-font-body);
+  font-weight: 400;
+  font-size: var(--pw-text-md);
+  line-height: var(--pw-leading-loose);
+  color: var(--pw-fg-muted);
+  text-wrap: pretty;
+}
+
+.pw-lead {
+  font-family: var(--pw-font-body);
+  font-weight: 400;
+  font-size: var(--pw-text-lg);
+  line-height: var(--pw-leading-normal);
+  color: var(--pw-fg);
+  text-wrap: pretty;
+}
+
+.pw-small {
+  font-family: var(--pw-font-body);
+  font-size: var(--pw-text-sm);
+  line-height: var(--pw-leading-normal);
+  color: var(--pw-fg-subtle);
+}
+
+.pw-mono, code, pre {
+  font-family: var(--pw-font-mono);
+  font-size: 0.92em;
+}
+
+/* On dark surfaces, swap text colors */
+.pw-on-dark {
+  color: var(--pw-fg-inverse);
+}
+.pw-on-dark .pw-p,
+.pw-on-dark .pw-body { color: var(--pw-fg-inverse-muted); }
+.pw-on-dark .pw-eyebrow { color: var(--pw-fg-inverse-muted); }
+
+/* =========================================================
+   THE SIGNATURE: organic ribbon divider
+   The real Powerling ribbon is multi-layered SVG river-paths,
+   not a simple rectangle. Use the pw-ribbon-svg class on a
+   container and inject the SVG via inline markup or background.
+   The CSS-only approximation below stacks two pseudo-elements
+   as blurred gradient ellipses to evoke the flowing feel.
+   For pixel-perfect output use inline SVG (see ui_kits/).
+   ========================================================= */
+.pw-ribbon {
+  position: relative;
+  width: 100%;
+  height: 80px;
+  overflow: hidden;
+  background: transparent;
+}
+.pw-ribbon::before,
+.pw-ribbon::after {
+  content: "";
+  position: absolute;
+  left: -5%; right: -5%;
+  height: 50px;
+  border-radius: 50%;
+  filter: blur(2px);
+  background-size: 200% 100%;
+  animation: pw-ribbon-drift var(--pw-dur-ribbon) linear infinite;
+}
+.pw-ribbon::before {
+  top: 10px;
+  background-image: linear-gradient(90deg,
+    transparent 0%,
+    var(--pw-ribbon-rose)   15%,
+    var(--pw-ribbon-coral)  38%,
+    var(--pw-ribbon-amber)  55%,
+    var(--pw-ribbon-teal)   72%,
+    var(--pw-ribbon-sky)    88%,
+    var(--pw-ribbon-mist)   100%);
+  opacity: 0.9;
+}
+.pw-ribbon::after {
+  top: 30px;
+  background-image: linear-gradient(90deg,
+    var(--pw-ribbon-violet) 0%,
+    var(--pw-ribbon-sky)    40%,
+    var(--pw-ribbon-mist)   80%,
+    transparent 100%);
+  opacity: 0.65;
+  animation-direction: reverse;
+}
+
+@keyframes pw-ribbon-drift {
+  from { background-position: 0% 0; }
+  to   { background-position: 200% 0; }
+}
