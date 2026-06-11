@@ -515,6 +515,19 @@ def _score_color(n) -> str:
         return "#9ca3af"
 
 
+def _format_count(value) -> str:
+    if not value:
+        return str(value) if value is not None else ""
+    s = str(value).replace(",", "").strip()
+    try:
+        n = int(s)
+        if str(n) == s:
+            return f"~{n:,}"
+    except ValueError:
+        pass
+    return f"~{value}"
+
+
 def _tier_class(tier: str) -> str:
     return {
         "Full Coverage": "tier-full",
@@ -581,10 +594,21 @@ async def get_audit_pdf(job_id: str, _submitted_by: str = Depends(verify_token))
     lcr = p1.get("lcr_score") or 0
     lcr_arc = round(float(lcr) / 100 * 238.76, 1)
 
-    available = set(p1.get("available_languages") or [])
-    required = set(p1.get("required_languages") or [])
-    required_not_covered = sorted(required - available)
     ml_count = len(p1.get("mixed_language_issues") or [])
+
+    crawl_error = p2.get("crawl_error") or ""
+    if p2.get("psi_ran") == False and p2.get("crawl_ran") == False:
+        p2_warning = "Performance and crawl data could not be collected. Pillar 2 findings are based on limited information only."
+    elif p2.get("crawl_ran") == False and crawl_error.startswith("Bot-blocked"):
+        p2_warning = "Site health data unavailable - bot protection prevented the crawler from accessing this site. PSI scores are unaffected."
+    elif p2.get("crawl_ran") == False and crawl_error:
+        p2_warning = f"Crawl data unavailable: {crawl_error}"
+    elif p2.get("psi_ran") == False:
+        p2_warning = "PageSpeed data could not be collected for this site."
+    elif p2.get("crawl_ran") != False and p2.get("pages_crawled") == 1:
+        p2_warning = "Crawl limited to 1 page - metrics reflect the homepage only, not the full site."
+    else:
+        p2_warning = None
 
     css_content, logo_url_str = _get_pdf_assets()
 
@@ -593,6 +617,7 @@ async def get_audit_pdf(job_id: str, _submitted_by: str = Depends(verify_token))
         loader=jinja2.FileSystemLoader(str(tpl_dir)),
         autoescape=True,
     )
+    env.filters["format_count"] = _format_count
     env.globals.update({
         "score_class": _score_class,
         "score_color": _score_color,
@@ -610,8 +635,8 @@ async def get_audit_pdf(job_id: str, _submitted_by: str = Depends(verify_token))
         cf=cf, ui=ui,
         lcr_arc=lcr_arc,
         lcr_donut_color=_lcr_donut_color(lcr),
-        required_not_covered=required_not_covered,
         ml_count=ml_count,
+        p2_warning=p2_warning,
         css_content=css_content,
         logo_url=logo_url_str,
     )

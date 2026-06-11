@@ -53,7 +53,6 @@ export async function GET(req: NextRequest) {
 
     // use admin if our backend says so, otherwise use sso role
     const role = data.role === 'admin' ? 'admin' : ssoRole; 
-    console.log(userData);
 
     // set cookie with identifer 
     const session = await getSession();

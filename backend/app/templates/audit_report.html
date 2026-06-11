@@ -218,6 +218,8 @@
   .land-list.adv .s { color: var(--pw-mint-600); }
   .land-list.gap .s { color: var(--c-red); }
 
+  .warn-banner { background:#fefce8; border:1px solid #fde047; border-radius:6px; padding:7px 10px; font-size:11px; color:#854d0e; display:flex; align-items:flex-start; gap:6px; margin-bottom:12px; }
+
   .issues-h { font-size: 10.5px; color: var(--pw-fg-subtle); margin: 14px 0 6px; }
   .issues { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
   .issues li { display: flex; gap: 7px; font-size: 11.5px; color: #b04a52; line-height: 1.4; }
@@ -279,18 +281,17 @@
     <div class="page-foot">
       <span>Powerling · Confidential</span>
       <span>{{ company_name }}</span>
-      <span>Page 1 of 4</span>
+      <span>Page 1 of 6</span>
     </div>
   </div>
 
-  <!-- PAGE 2 -->
+  <!-- PAGE 2 — Pillar 1 -->
   <div class="page">
     <div class="page-head">
       <img src="{{ logo_url }}" alt="Powerling" />
       <div class="ph-meta">Pre-Audit Report</div>
     </div>
 
-    <!-- Pillar 1 -->
     <section class="block">
       <div class="sec-head">
         <h2 class="sec-title">Pillar 1 — Globalization</h2>
@@ -345,11 +346,12 @@
           </div>
           {% endif %}
 
-          {% if required_not_covered %}
-          <p class="chips-cap" style="margin-top:10px;">Required, not yet covered</p>
+          {% set variants = p1.available_language_variants or [] %}
+          {% if variants %}
+          <p class="chips-cap" style="margin-top:10px;">Regional variants</p>
           <div class="chips">
-            {% for code in required_not_covered %}
-            <span class="chip reg">{{ code }}</span>
+            {% for v in variants %}
+            <span class="chip" style="background:#f3f4f6;color:#6b7280;">{{ v }}</span>
             {% endfor %}
           </div>
           {% endif %}
@@ -377,7 +379,20 @@
       </div>
     </section>
 
-    <!-- Pillar 2 -->
+    <div class="page-foot">
+      <span>Powerling · Confidential</span>
+      <span>{{ company_name }}</span>
+      <span>Page 2 of 6</span>
+    </div>
+  </div>
+
+  <!-- PAGE 3 — Pillar 2 -->
+  <div class="page">
+    <div class="page-head">
+      <img src="{{ logo_url }}" alt="Powerling" />
+      <div class="ph-meta">Pre-Audit Report</div>
+    </div>
+
     <section class="block">
       <div class="sec-head">
         <h2 class="sec-title">Pillar 2 — Website Health</h2>
@@ -385,6 +400,9 @@
       </div>
       <div class="grid2">
         <div class="card">
+          {% if p2_warning %}
+          <div class="warn-banner"><span>⚠</span><span>{{ p2_warning }}</span></div>
+          {% endif %}
           <p class="psi-h">PageSpeed Insights</p>
           {% set perf_m  = p2.performance_score_mobile %}
           {% set perf_d  = p2.performance_score_desktop %}
@@ -456,18 +474,17 @@
     <div class="page-foot">
       <span>Powerling · Confidential</span>
       <span>{{ company_name }}</span>
-      <span>Page 2 of 4</span>
+      <span>Page 3 of 6</span>
     </div>
   </div>
 
-  <!-- PAGE 3 -->
+  <!-- PAGE 4 — Pillar 3 -->
   <div class="page">
     <div class="page-head">
       <img src="{{ logo_url }}" alt="Powerling" />
       <div class="ph-meta">Pre-Audit Report</div>
     </div>
 
-    <!-- Pillar 3 -->
     <section class="block">
       <div class="sec-head">
         <h2 class="sec-title">Pillar 3 — Accessibility &amp; Compliance</h2>
@@ -483,11 +500,15 @@
             </div>
             <div class="tile">
               <p class="lbl">Accessibility statement</p>
+              {% if p3.has_accessibility_statement and p3.accessibility_statement_url %}
+              <p class="val pos"><a href="{{ p3.accessibility_statement_url }}" style="color:inherit;">Yes ↗</a></p>
+              {% else %}
               <p class="val {% if p3.has_accessibility_statement %}pos{% else %}neg{% endif %}">{% if p3.has_accessibility_statement %}Yes{% else %}No{% endif %}</p>
+              {% endif %}
             </div>
             <div class="tile">
               <p class="lbl">Cookie consent</p>
-              <p class="val {% if p3.has_cookie_banner %}pos{% else %}neg{% endif %}">{% if p3.has_cookie_banner %}Yes{% else %}No{% endif %}</p>
+              <p class="val {% if p3.has_cookie_banner %}pos{% else %}muted{% endif %}">{% if p3.has_cookie_banner %}Yes{% else %}Undetected{% endif %}</p>
             </div>
             <div class="tile">
               <p class="lbl">Primary region</p>
@@ -538,7 +559,20 @@
       </div>
     </section>
 
-    <!-- Pillar 4 -->
+    <div class="page-foot">
+      <span>Powerling · Confidential</span>
+      <span>{{ company_name }}</span>
+      <span>Page 4 of 6</span>
+    </div>
+  </div>
+
+  <!-- PAGE 5 — Pillar 4 -->
+  <div class="page">
+    <div class="page-head">
+      <img src="{{ logo_url }}" alt="Powerling" />
+      <div class="ph-meta">Pre-Audit Report</div>
+    </div>
+
     <section class="block">
       <div class="sec-head">
         <h2 class="sec-title">Pillar 4 — Online Reputation</h2>
@@ -551,26 +585,26 @@
           <p class="rev-h">Review Ratings</p>
           {% if p4.trustpilot_score %}
           <div class="rev">
-            <span class="plat">Trustpilot</span>
+            {% if p4.trustpilot_url %}<a href="{{ p4.trustpilot_url }}" class="plat" style="color:var(--c-blue);text-decoration:none;">Trustpilot</a>{% else %}<span class="plat">Trustpilot</span>{% endif %}
             <span class="track"><span style="width:{{ ((p4.trustpilot_score or 0) / 5 * 100)|int }}%;"></span></span>
             <span class="num">{{ p4.trustpilot_score }}</span>
-            <span class="cnt">{{ p4.trustpilot_reviews or '?' }} reviews</span>
+            <span class="cnt">{{ (p4.trustpilot_reviews | format_count) if p4.trustpilot_reviews else '?' }} reviews</span>
           </div>
           {% endif %}
           {% if p4.glassdoor_score %}
           <div class="rev">
-            <span class="plat">Glassdoor</span>
+            {% if p4.glassdoor_url %}<a href="{{ p4.glassdoor_url }}" class="plat" style="color:var(--c-blue);text-decoration:none;">Glassdoor</a>{% else %}<span class="plat">Glassdoor</span>{% endif %}
             <span class="track"><span style="width:{{ ((p4.glassdoor_score or 0) / 5 * 100)|int }}%;"></span></span>
             <span class="num">{{ p4.glassdoor_score }}</span>
-            <span class="cnt">{{ p4.glassdoor_reviews or '?' }} reviews</span>
+            <span class="cnt">{{ (p4.glassdoor_reviews | format_count) if p4.glassdoor_reviews else '?' }} reviews</span>
           </div>
           {% endif %}
           {% if p4.indeed_score %}
           <div class="rev">
-            <span class="plat">Indeed</span>
+            {% if p4.indeed_url %}<a href="{{ p4.indeed_url }}" class="plat" style="color:var(--c-blue);text-decoration:none;">Indeed</a>{% else %}<span class="plat">Indeed</span>{% endif %}
             <span class="track"><span style="width:{{ ((p4.indeed_score or 0) / 5 * 100)|int }}%;"></span></span>
             <span class="num">{{ p4.indeed_score }}</span>
-            <span class="cnt">{{ p4.indeed_reviews or '?' }} reviews</span>
+            <span class="cnt">{{ (p4.indeed_reviews | format_count) if p4.indeed_reviews else '?' }} reviews</span>
           </div>
           {% endif %}
           {% endif %}
@@ -586,8 +620,11 @@
           <p class="soc-h">Social Media</p>
           {% for platform, data in social_items %}
           <div class="soc">
-            <span class="p">{{ platform | capitalize }}</span>
-            <span class="v">{{ data.get('followers') or data.get('subscribers') or 'N/A' }}</span>
+            {% if data.get('url') %}<a href="{{ data.get('url') }}" class="p" style="text-decoration:none;color:var(--pw-fg-muted);">{{ platform | capitalize }}</a>{% else %}<span class="p">{{ platform | capitalize }}</span>{% endif %}
+            {% set count = data.get('followers') or data.get('subscribers') %}
+            {% if count %}<span class="v">{{ count | format_count }}</span>
+            {% elif data.get('url') %}<a href="{{ data.get('url') }}" class="v" style="font-size:10px;color:var(--c-blue);text-decoration:none;">View page →</a>
+            {% endif %}
           </div>
           {% endfor %}
           {% endif %}
@@ -618,11 +655,11 @@
     <div class="page-foot">
       <span>Powerling · Confidential</span>
       <span>{{ company_name }}</span>
-      <span>Page 3 of 4</span>
+      <span>Page 5 of 6</span>
     </div>
   </div>
 
-  <!-- PAGE 4 -->
+  <!-- PAGE 6 — Competitive Landscape -->
   <div class="page">
     <div class="page-head">
       <img src="{{ logo_url }}" alt="Powerling" />
@@ -700,7 +737,7 @@
     <div class="page-foot">
       <span>Powerling · Confidential</span>
       <span>{{ company_name }}</span>
-      <span>Page 4 of 4</span>
+      <span>Page 6 of 6</span>
     </div>
   </div>
 

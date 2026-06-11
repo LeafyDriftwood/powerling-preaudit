@@ -10,6 +10,16 @@ async function getAuthHeader() {
   return { Authorization: `Bearer ${jwt}` };
 }
 
+// check response status before parsing JSON to avoid SyntaxError on non-JSON error bodies
+async function parseJsonOrThrow(response: Response, fallbackMessage: string) {
+  if (!response.ok) {
+    let detail = fallbackMessage;
+    try { detail = (await response.json()).detail || fallbackMessage; } catch {}
+    throw new Error(detail);
+  }
+  return response.json();
+}
+
 // create an audit job
 export async function createAudit(formData: FormData) {
   // get headers
@@ -23,57 +33,35 @@ export async function createAudit(formData: FormData) {
   });
 
   // handle response
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.detail || 'Failed to create audit job.');
-  return data;
+  return parseJsonOrThrow(response, 'Failed to create audit job.');
 }
 
 // list all audit jobs
 export async function listAudits() {
-  // get headers
+  // get headers, call api
   const headers = await getAuthHeader();
-
-  // call api
-  const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/audits`, {
-    headers: headers,
-  });
+  const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/audits`, { headers });
 
   // handle response
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.detail || 'Failed to fetch audit jobs.');
-  return data;
+  return parseJsonOrThrow(response, 'Failed to fetch audit jobs.');
 }
 
 // get details of an audit job
 export async function getAuditDetails(job_id: string) {
-  // get headers
+  // get headers, call api and handle response
   const headers = await getAuthHeader();
+  const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/audits/${job_id}`, { headers });
 
-  // call api
-  const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/audits/${job_id}`, {
-    headers: headers,
-  });
-
-  // handle response
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.detail || 'Failed to fetch audit details.');
-  return data;
+  return parseJsonOrThrow(response, 'Failed to fetch audit details.');
 }
 
 // get result of an audit job
 export async function getAuditResult(job_id: string) {
-  // get headers
+  // get headers, call api and handle response
   const headers = await getAuthHeader();
+  const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/audits/${job_id}/result`, { headers });
 
-  // call api
-  const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/audits/${job_id}/result`, {
-    headers: headers,
-  });
-
-  // handle response
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.detail || 'Failed to fetch audit result.');
-  return data;
+  return parseJsonOrThrow(response, 'Failed to fetch audit result.');
 }
 
 // return the current user
@@ -84,16 +72,12 @@ export async function getCurrentUser() {
 
 // get all the users (should only be accessible to admins)
 export async function getAllUsers() {
-  // get headers
+  // get headers, call api
   const headers = await getAuthHeader();
-  
-  // call api
-  const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/users`, {
-    headers: headers,
-  });
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.detail || 'Failed to fetch users.');
-  return data;
+  const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/users`, { headers });
+
+  // handle response
+  return parseJsonOrThrow(response, 'Failed to fetch users.');
 }
 
 // update a user's role (should only be accessible to admins)
@@ -109,18 +93,15 @@ export async function updateUserRole(identifier: string, role: string) {
   });
 
   // handle response
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.detail || 'Failed to update user role.');
-  return data;
+  return parseJsonOrThrow(response, 'Failed to update user role.');
 }
 
 // get a specific user and their audits (admin only)
 export async function getUser(email: string) {
+  // get headers, call api and handle response
   const headers = await getAuthHeader();
   const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/users/${encodeURIComponent(email)}`, { headers });
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.detail || 'Failed to fetch user.');
-  return data;
+  return parseJsonOrThrow(response, 'Failed to fetch user.');
 }
 
 // get the pdf report for an audit job — returns raw bytes (URL.createObjectURL must be called client-side)
