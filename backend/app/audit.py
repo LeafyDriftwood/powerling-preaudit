@@ -186,7 +186,7 @@ For each found, note: domain name, primary language served, target market.
 
 STEP 3 - Derive Required Languages (RL) from the geographic footprint found in Step 1:
 RL definition: identify the top 5-8 countries by traffic share using any traffic tool (Semrush, Similarweb, etc.).
-Map each country to its dominant official or commercial language.
+Map each country to its dominant commercial or official language(s).
 RL = the distinct languages needed to serve those markets natively — no more, no fewer.
 required_languages must reflect the company's actual significant customer base,
 not what is already on the website and not an assumption about what a company "should" have.

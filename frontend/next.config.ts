@@ -7,6 +7,7 @@ const requiredEnvVars = [
   'APP_HOST',
   'NEXT_PUBLIC_APP_URL',
   'JWT_SECRET',
+  'NEXT_PUBLIC_API_URL',
 ];
 
 for (const key of requiredEnvVars) {
