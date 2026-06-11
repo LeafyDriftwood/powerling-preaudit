@@ -1,14 +1,13 @@
 """
-Pillar 4 — Online Reputation data gathering.
+Pillar 4: Online Reputation data gathering.
 
 Wires together three steps:
   1. YouTube API: find official channel + extract stats
-  2. (optional) GPT validation: only if Step 1 finds no confident match
+  2. GPT validation: only if Step 1 finds no confident match
   3. Website footer scraper: find social media links from the company site
   4. GPT research: discover all reputation data, using Steps 1+3 as hints
 
-Public API:
-  gather_pillar4_facts(domain, company_name) -> dict
+Returns a public function: gather_pillar4_facts(domain, company_name) -> dict
 """
 
 import json

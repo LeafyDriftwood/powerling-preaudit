@@ -465,9 +465,9 @@ def get_user(email: str, submitted_by: str = Depends(verify_token)):
     }
 
 
-# ---------------------------------------------------------------------------
-# PDF export
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
+# PDF export: Everything below concerns the creation of the pdf template provided by Nico
+# ------------------------------------------------------------------------------
 
 _PDF_ASSETS_DIR = Path(__file__).parent / "pdf_assets"
 _pdf_css_cache = None

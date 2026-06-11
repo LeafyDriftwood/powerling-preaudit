@@ -1,7 +1,7 @@
 """
-Pillar 2: Website Health data gathering for Powerling Pre-Audit.
+Pillar 2: Website Health data gathering. 
 
-Data sources (all free, no auth required for basic use):
+Performs technical checks on the client's website. 
   1. Google PageSpeed Insights API
      - Client homepage: mobile + desktop
   2. Homepage technical checks (requests + HTML parsing)
@@ -27,17 +27,17 @@ from urllib.parse import urlparse, urljoin
 import requests
 
 PSI_ENDPOINT = "https://www.googleapis.com/pagespeedonline/v5/runPagespeed"
-_HTTP_TIMEOUT = 12   # seconds for simple GET checks
+_HTTP_TIMEOUT = 12  # seconds for simple GET checks
 _PSI_CONNECT_TIMEOUT = 10
 _PSI_READ_TIMEOUT = 180
-_PSI_DELAY = 0.5     # seconds between PSI calls (courtesy, not required)
+_PSI_DELAY = 0.5 # seconds between PSI calls (courtesy, not required)
 
 _HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; PowerlingAudit/1.0)"}
 
 
-# ---------------------------------------------------------------------------
+# ------------------------------------
 # PageSpeed Insights - internal helpers
-# ---------------------------------------------------------------------------
+# -------------------------------------
 
 def _score(data: dict, category: str) -> Optional[int]:
     """Extract 0-100 category score from a PSI response dict."""
@@ -85,12 +85,12 @@ def _parse_psi_response(data: dict, url: str, strategy: str) -> dict:
         "strategy": strategy,
         "psi_ran": True,
         "psi_error": None,
-        # Category scores (0-100)
+        # Category scores 
         "performance_score": _score(data, "performance"),
         "accessibility_score": _score(data, "accessibility"),
         "best_practices_score": _score(data, "best-practices"),
         "seo_score": _score(data, "seo"),
-        # Core Web Vitals - lab data (Lighthouse simulation)
+        # Core Web Vitals 
         "lcp": d("largest-contentful-paint"),
         "lcp_score": s("largest-contentful-paint"),
         "cls": d("cumulative-layout-shift"),
@@ -101,17 +101,17 @@ def _parse_psi_response(data: dict, url: str, strategy: str) -> dict:
         "tbt": d("total-blocking-time"),
         "speed_index": d("speed-index"),
         "server_response_time": d("server-response-time"),
-        # CWV - field data (real user measurements, when available)
+        # core web vitals categories
         "cwv_lcp_category": _cwv(data, "LARGEST_CONTENTFUL_PAINT_MS"),
         "cwv_cls_category": _cwv(data, "CUMULATIVE_LAYOUT_SHIFT_SCORE"),
         "cwv_inp_category": _cwv(data, "INTERACTION_TO_NEXT_PAINT"),
         "cwv_fcp_category": _cwv(data, "FIRST_CONTENTFUL_PAINT_MS"),
-        # Core performance metrics (display values + scores)
+        # Core performance metrics 
         "time_to_interactive": d("interactive"),
         "time_to_interactive_score": s("interactive"),
         "total_blocking_time_score": s("total-blocking-time"),
         "speed_index_score": s("speed-index"),
-        # SEO sub-audits: 1.0 = pass, 0.0 = fail, None = informational
+        # SEO sub-audits, where lighthouse returns binary 0 1s 
         "has_meta_description": s("meta-description") == 1,
         "has_document_title": s("document-title") == 1,
         "hreflang_audit_pass": s("hreflang") == 1,
@@ -123,7 +123,7 @@ def _parse_psi_response(data: dict, url: str, strategy: str) -> dict:
         "tap_targets_score": s("tap-targets"),
         "font_size_ok": s("font-size") == 1,
         "link_text_ok": s("link-text") == 1,
-        # Performance opportunities (True = issue present; *_savings = human-readable estimate)
+        # Performance opportunities 
         "render_blocking_resources": s("render-blocking-resources") is not None
                                      and s("render-blocking-resources") < 0.9,
         "render_blocking_savings": d("render-blocking-resources"),
@@ -139,7 +139,7 @@ def _parse_psi_response(data: dict, url: str, strategy: str) -> dict:
         "unminified_css": s("unminified-css") is not None
                           and s("unminified-css") < 0.9,
         "unminified_css_savings": d("unminified-css"),
-        # Image optimisation (True = issue present / savings available)
+        # Image optimisation (
         "unoptimized_images": s("uses-optimized-images") is not None
                               and s("uses-optimized-images") < 0.9,
         "unoptimized_images_savings": d("uses-optimized-images"),
@@ -149,7 +149,7 @@ def _parse_psi_response(data: dict, url: str, strategy: str) -> dict:
         "offscreen_images": s("offscreen-images") is not None
                             and s("offscreen-images") < 0.9,
         "offscreen_images_savings": d("offscreen-images"),
-        # Caching / network
+        # Caching/network
         "uses_text_compression": s("uses-text-compression") == 1,
         "efficient_cache": s("uses-long-cache-ttl") is not None
                            and s("uses-long-cache-ttl") > 0.5,
@@ -193,7 +193,7 @@ def _empty_psi(url: str, strategy: str, error: str = None) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# PageSpeed Insights - public API
+# PageSpeed Insights
 # ---------------------------------------------------------------------------
 
 def gather_pagespeed_data(
@@ -203,12 +203,11 @@ def gather_pagespeed_data(
 ) -> dict:
     """
     Run PageSpeed Insights on a single URL.
-    Returns structured metrics dict; on failure psi_ran=False and psi_error is set.
-
-    api_key: optional Google Cloud API key (free quota: 25K/day vs ~400/day without)
-             Pass os.environ.get("GOOGLE_PAGESPEED_API_KEY") or None.
+    Returns structured metrics dict, and on failure psi_ran=False and psi_error is set.
     Retries on 429 + timeout/transient request failures with exponential backoff.
     """
+
+    # please have key!!!
     if api_key is None:
         api_key = os.environ.get("GOOGLE_PAGESPEED_API_KEY")
 
@@ -220,6 +219,7 @@ def gather_pagespeed_data(
     if api_key:
         params["key"] = api_key
 
+    # try api 3 times with exponential backoff based on error type
     max_attempts = 3
     for attempt in range(max_attempts):
         try:
@@ -260,11 +260,11 @@ def gather_pagespeed_data(
 
 
 # ---------------------------------------------------------------------------
-# Homepage technical checks (requests + HTML parsing, no Playwright needed)
+# Homepage technical checks
 # ---------------------------------------------------------------------------
 
 def _check_path(base: str, path: str) -> bool:
-    """GET base + path, return True if response is 200."""
+    """GET base+path, return True if response is 200."""
     try:
         target = urljoin(base.rstrip("/") + "/", path.lstrip("/"))
         r = requests.get(target, timeout=_HTTP_TIMEOUT, allow_redirects=True,
@@ -374,9 +374,9 @@ def gather_homepage_technical_facts(url: str) -> dict:
     return result
 
 
-# ---------------------------------------------------------------------------
-# Orchestration - client site
-# ---------------------------------------------------------------------------
+# -----------------------------------------------------------------------
+# Putting it all together
+# -----------------------------------------------------------------------
 
 def gather_pillar2_facts(
     url: str,
@@ -488,7 +488,7 @@ def gather_pillar2_facts(
         "pages_slow_load": None,
     }
 
-    # 1. Homepage PSI - mobile
+    # 1. Homepage PSI: mobile
     plog(f"[p2]   PSI homepage mobile ...")
     mobile = gather_pagespeed_data(url, strategy="mobile", api_key=api_key)
     result["homepage_mobile"] = mobile
@@ -525,7 +525,7 @@ def gather_pillar2_facts(
 
     time.sleep(_PSI_DELAY)
 
-    # 2. Homepage PSI - desktop
+    # 2. Homepage PSI: Desktop
     plog(f"[p2]   PSI homepage desktop ...")
     desktop = gather_pagespeed_data(url, strategy="desktop", api_key=api_key)
     result["homepage_desktop"] = desktop
@@ -534,12 +534,10 @@ def gather_pillar2_facts(
         result["performance_score_desktop"] = desktop.get("performance_score")
         result["lcp_desktop"] = desktop.get("lcp")
 
+    # NOTE: Desktop data is currently not surfaced to top level: primary focus is mobiel. 
     time.sleep(_PSI_DELAY)
 
-    # 3. Locale page PSI - disabled (not used in UI or generate_ui_content)
-    # Re-enable when locale performance benchmarking is needed.
-
-    # 4. Homepage technical checks
+    # 3. Homepage technical checks
     plog(f"[p2]   Homepage technical checks ...")
     tech = gather_homepage_technical_facts(url)
     if tech.get("checker_ran"):
@@ -550,7 +548,7 @@ def gather_pillar2_facts(
         ]:
             result[field] = tech[field]
 
-    # 5. Site crawl (DataForSEO OnPage API)
+    # 5. Run data for seo crawl 
     plog(f"[p2]   Site crawl via DataForSEO (up to {max_crawl_pages} pages) ...")
     try:
         from .dataforseo_crawl import gather_site_crawl_facts_dataforseo as _gather_crawl
@@ -569,8 +567,7 @@ def gather_pillar2_facts(
     result["crawl_ran"] = crawl.get("crawl_ran", False)
     result["crawl_error"] = crawl.get("crawl_error")
 
-    # Detect bot-blocked DataForSEO crawl: either explicit Access Denied in H1,
-    # or crawled only 1 page with a 0 health score (blocked page served as homepage).
+    # Detect bot-blocked DataForSEO crawl: either explicit Access Denied in H1, 0 health, or few pages. In that case, skip crawl metrics. 
     if result["crawl_ran"]:
         _pages = crawl.get("pages_crawled") or 0
         _health = crawl.get("site_health_score")
