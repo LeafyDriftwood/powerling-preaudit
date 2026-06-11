@@ -32,3 +32,4 @@ test_*.py
 # misc
 dist/
 build/
+DEPLOY.md
