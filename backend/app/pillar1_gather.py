@@ -2,7 +2,7 @@
 Pillar 1 — Globalization data gathering.
 
 Two public functions:
-  gather_pillar1_facts(url, ...)        — Playwright crawler: locale URLs, hreflang, selector type
+  gather_pillar1_facts(url, ...) - Launches a Playwright crawler, curl request and sitemap crawl in parallel for locale URLs, hreflang, selector type
   gather_mixed_language_issues(domain, available_languages) — GPT-5: find mixed-language UX issues
 """
 
@@ -94,9 +94,13 @@ def _add_locale_candidate(locale_urls: dict, code: Optional[str], href: Optional
 
 
 def _extract_code_from_href(href: str, base_url: str) -> Optional[str]:
+    """Try to extract a language code from the URL using multiple strategies:"""
+
+    # ignore if not href
     if not href:
         return None
 
+    # Check for language code in query parameters, and return if seems valid
     query_match = re.search(
         r"[?&](?:lang|locale|hl|language)=([a-z]{2}(?:[-_][a-z]{2})?)(?:[&#]|$)",
         href, re.IGNORECASE,
@@ -106,6 +110,7 @@ def _extract_code_from_href(href: str, base_url: str) -> Optional[str]:
         if _is_probable_lang_code(code):
             return code
 
+    # Check for language code in url hash fragment (eg. #/en/)
     hash_match = re.search(
         r"#(?:/|.*(?:lang|locale)=)([a-z]{2}(?:[-_][a-z]{2})?)(?:[&#/]|$)",
         href, re.IGNORECASE,
@@ -115,13 +120,14 @@ def _extract_code_from_href(href: str, base_url: str) -> Optional[str]:
         if _is_probable_lang_code(code):
             return code
 
+    # Check for code in path segements
     path_segments = [s for s in urlparse(href).path.split("/") if s][:3]
     for i, seg in enumerate(path_segments):
         if re.fullmatch(r"[a-z]{2}(?:[-_][a-z]{2,4})?", seg, re.IGNORECASE):
             code = _normalize_lang(seg)
             if _is_probable_lang_code(code):
                 # Country-first URLs (/nl/en/, /it/en/): if the next segment is also
-                # a lang code, prefer it — the first is a country code, second is language.
+                # a lang code, prefer it, the first is a country code, second is likely language.
                 if i + 1 < len(path_segments):
                     next_seg = path_segments[i + 1]
                     if re.fullmatch(r"[a-z]{2}(?:[-_][a-z]{2,4})?", next_seg, re.IGNORECASE):
@@ -131,6 +137,7 @@ def _extract_code_from_href(href: str, base_url: str) -> Optional[str]:
                 return code
 
     try:
+        # extract subdomain and check if it's a language code only if the registered domain matches the base URL's registered domain
         if _TLDEXTRACT_AVAILABLE:
             ext_href = _tldextract.extract(href)
             ext_base = _tldextract.extract(base_url)
@@ -145,6 +152,7 @@ def _extract_code_from_href(href: str, base_url: str) -> Optional[str]:
                     if _is_probable_lang_code(code):
                         return code
         else:
+            # manual parsing, but hopefully will not be used. 
             parsed_href = urlparse(href)
             parsed_base = urlparse(base_url)
             host = (parsed_href.hostname or "").lower().removeprefix("www.")
@@ -167,12 +175,14 @@ def _extract_code_from_href(href: str, base_url: str) -> Optional[str]:
 def _detect_locale_urls(page, base_url: str) -> dict:
     locale_urls = {}
 
+    # try to check hreflang tags first, since they're the clearest signal
     hreflang_tags = page.evaluate("""() => {
         return Array.from(
             document.querySelectorAll('link[rel="alternate"][hreflang]')
         ).map(el => ({ lang: el.hreflang, href: el.href }));
     }""")
 
+    # map lang codes to urls if they're valid languages
     for tag in hreflang_tags:
         lang = tag.get("lang", "")
         href = tag.get("href", "")
@@ -181,6 +191,7 @@ def _detect_locale_urls(page, base_url: str) -> dict:
             if _is_probable_lang_code(code):
                 _add_locale_candidate(locale_urls, code, href)
 
+    # check to see if there are any langauge switchers that link to other urls. Returns array of urls with corresponding langs
     switcher_links = page.evaluate("""() => {
         const selectors = [
             '.lang-switcher a', '.language-switcher a', '.language-selector a',
@@ -203,6 +214,7 @@ def _detect_locale_urls(page, base_url: str) -> dict:
         return found;
     }""")
 
+    # Determine language code for each switcher link
     for link in switcher_links:
         href = link.get("href", "")
         text = link.get("text", "").strip()
@@ -221,6 +233,8 @@ def _detect_locale_urls(page, base_url: str) -> dict:
 
         _add_locale_candidate(locale_urls, code, href)
 
+
+    # check all <a> tags available on the site
     broad_links = page.evaluate("""() => {
         return Array.from(document.querySelectorAll('a[href]')).map(el => ({
             href: el.href || '',
@@ -246,6 +260,7 @@ def _detect_locale_urls(page, base_url: str) -> dict:
             if any(href_host == d or href_host.endswith("." + d) for d in _SOCIAL_DOMAINS):
                 continue
 
+        # if theres a lang attr, use it. Otherwise match text fo the link, and lastly heck href
         code = None
         if lang_attr:
             code = _normalize_lang(lang_attr)
@@ -264,13 +279,14 @@ def _detect_cookie_banner(page) -> dict:
     """
     Detect cookie consent banners and identify the CMP provider.
     Uses two strategies:
-      1. Script/style signals — reliable because they're in the HTML source
-         (CMP scripts are loaded server-side, so their tags are always present)
-      2. DOM element signals — for banners that are already rendered
+      1. Script/style signals, which are reliable because they're in the HTML source
+      2. DOM element signals for banners that are already rendered
     Returns {"detected": bool, "provider": str | None}
     """
+
+    # Check the script tags for known domains. For known cookie providers, we can look for standard attributes
     result = page.evaluate("""() => {
-        // --- Strategy 1: script/style tag signals (always present in source) ---
+        // Strategy 1: script/style tag signals 
         const scriptSignals = [
             { name: "Cookiebot",  patterns: ["consent.cookiebot.com", "cookiebot.com/uc.js", "cookiebot.com/cc.js"] },
             { name: "OneTrust",   patterns: ["cdn.cookielaw.org", "optanon.blob.core.windows.net"] },
@@ -361,7 +377,7 @@ def _detect_cookie_banner(page) -> dict:
             return { detected: true, provider: "Tealium" };
         }
 
-        // --- Strategy 2: rendered DOM elements ---
+        // Strategy 2: rendered DOM elements
         const domProviders = [
             { name: "OneTrust",   selectors: ["#onetrust-banner-sdk", ".onetrust-pc-dark-filter", ".ot-sdk-container", "#onetrust-group-container", "#onetrust-accept-btn-handler", "#onetrust-policy"] },
             { name: "Cookiebot",  selectors: ["#CybotCookiebotDialog", "[data-cookieconsent]"] },
@@ -410,6 +426,7 @@ def _detect_cookie_banner(page) -> dict:
 
 
 def _detect_language_selector_type(page) -> str:
+    """Checks for lang selector type. This could be a dropdown, dropdown with flags, or text links. Default to unknown."""
     result = page.evaluate("""() => {
         if (document.querySelector('select option[lang], select[id*="lang"], select[class*="lang"]'))
             return 'dropdown';
@@ -435,7 +452,7 @@ def _detect_translation_plugin(page) -> dict:
     return page.evaluate("""() => {
         const scripts = Array.from(document.scripts).map(s => s.src || '');
 
-        // GTranslate: DOM class is the primary signal — WP plugin files are often served via CDN
+        // GTranslate: DOM class is the primary signal
         // (e.g. ExactDN) with no gtranslate.net hostname, but the path always contains /plugins/gtranslate/.
         const hasGTranslate = !!document.querySelector('.gt_switcher, [id^="gt-wrapper-"]')
             || scripts.some(s => s.includes('gtranslate.net') || s.includes('/plugins/gtranslate/'));
@@ -464,13 +481,12 @@ def _detect_translation_plugin(page) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Leg 1 — curl_cffi raw HTML fetch
+# Leg 1: curl_cffi raw HTML fetch
 # ---------------------------------------------------------------------------
 
 def _leg1_curl(url: str) -> dict:
     """
-    Fetch the page with curl_cffi (Chrome TLS impersonation) and extract
-    locale URLs, hreflang variants, CMP script signals, and redirect chain.
+    Fetch the page with curl_cffi and extract locale URLs, hreflang variants, CMP script signals, and redirect chain.
     Returns a result dict; on failure sets 'success': False and 'error'.
     """
     result = {
@@ -488,12 +504,14 @@ def _leg1_curl(url: str) -> dict:
         return result
 
     try:
+        # create curl request and store url after redirects from base
         r = _creq.get(url, impersonate="chrome", headers=_CURL_HEADERS,
                       timeout=15, allow_redirects=True)
         result["landed_url"] = r.url
         body = r.text
         result["http_link_header"] = r.headers.get("link")
 
+        # error if we don't have 200
         if r.status_code != 200:
             result["error"] = f"HTTP {r.status_code}"
             return result
@@ -502,6 +520,8 @@ def _leg1_curl(url: str) -> dict:
 
         hreflang_variants = []
         locale_urls = {}
+
+        # look for hreflang tags or href in general
         for tag in soup.find_all("link", rel="alternate"):
             lang = tag.get("hreflang", "")
             href = tag.get("href", "")
@@ -519,7 +539,7 @@ def _leg1_curl(url: str) -> dict:
         result["hreflang_variants"] = hreflang_variants
         result["locale_urls"] = locale_urls
 
-        # CMP script signals — same pattern list as Playwright Strategy 1
+        # CMP script signals, same pattern list as Playwright Strategy 1
         _CMP_SCRIPT_SIGNALS = [
             ("OneTrust",       ["cdn.cookielaw.org", "optanon.blob.core.windows.net"]),
             ("Cookiebot",      ["consent.cookiebot.com", "cookiebot.com/uc.js"]),
@@ -555,12 +575,12 @@ def _leg1_curl(url: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Leg 2 — Sitemap hreflang check
+# Leg 2: Sitemap hreflang check
 # ---------------------------------------------------------------------------
 
 def _leg2_sitemap(base_url: str) -> dict:
     """
-    Fetch robots.txt → follow sitemaps → scan xhtml:link hreflang entries.
+    Fetch robots.txt, crawl sitemaps, and scan xhtml:link hreflang entries.
     Returns langs found, locale_urls, and per-sitemap status.
     """
     result = {
@@ -588,6 +608,7 @@ def _leg2_sitemap(base_url: str) -> dict:
             ]
     except Exception:
         pass
+    # if no sitemaps found in robots.txt, default to /sitemap.xml
     if not sitemap_urls:
         sitemap_urls = [f"{root_base}/sitemap.xml"]
 
@@ -596,14 +617,19 @@ def _leg2_sitemap(base_url: str) -> dict:
     seen_sitemaps = set()
 
     def _parse_sitemap(sm_url: str, depth: int = 0):
+        """Recursively parse a sitemap URL, looking for hreflang links in url entries, 
+        and recursing into nested sitemaps if it's a sitemap index. Depth is tracked to avoid infinite recursion."""
         if depth > 3 or sm_url in seen_sitemaps:
             return
         seen_sitemaps.add(sm_url)
 
         try:
+            # fetch the sitemap, decompress if needed, and parse as XML
             r = _creq.get(sm_url, impersonate="chrome", headers=_CURL_HEADERS,
                           timeout=15, allow_redirects=True)
             body = r.content
+
+            # decompres if needed (file extension or magic bytes)
             if sm_url.endswith(".gz") or body[:2] == b"\x1f\x8b":
                 body = gzip.decompress(body)
             body_text = body[:300].decode("utf-8", "replace")
@@ -611,10 +637,12 @@ def _leg2_sitemap(base_url: str) -> dict:
             if r.status_code != 200:
                 result["sitemap_statuses"][sm_url] = f"http_error_{r.status_code}"
                 return
+            # means we hit a block
             if "<html" in body_text.lower():
                 result["sitemap_statuses"][sm_url] = "blocked"
                 return
 
+            # parse bytes as xml
             root = ET.fromstring(body)
         except ET.ParseError:
             result["sitemap_statuses"][sm_url] = "failed"
@@ -623,20 +651,25 @@ def _leg2_sitemap(base_url: str) -> dict:
             result["sitemap_statuses"][sm_url] = "failed"
             return
 
+        # get tag name, namespace, and prefix (namespace is needed to find elements with namespaces)
         tag = root.tag.split("}")[-1] if "}" in root.tag else root.tag
         ns = root.tag.split("}")[0].lstrip("{") if "}" in root.tag else ""
         pfx = f"{{{ns}}}" if ns else ""
 
+        # recursively parse if its a sitemap index. Limit to 10 nested  sitemaps. 
         if tag == "sitemapindex":
             result["sitemap_statuses"][sm_url] = "ok"
             for sm in root.findall(f"{pfx}sitemap")[:10]:
                 loc = sm.find(f"{pfx}loc")
                 if loc is not None and loc.text:
                     _parse_sitemap(loc.text.strip(), depth + 1)
+        # if it's a urlset, look for hreflang links in url entries
         else:
             result["sitemap_statuses"][sm_url] = "ok"
             for url_el in root.findall(f"{pfx}url"):
                 for link in url_el.findall(f"{{{_SITEMAP_XHTML_NS}}}link"):
+
+                    # look for hreflang links and extract lang codes. 
                     if link.get("rel") == "alternate" and link.get("hreflang"):
                         lang = link.get("hreflang", "")
                         href = link.get("href", "")
@@ -645,7 +678,7 @@ def _leg2_sitemap(base_url: str) -> dict:
                             code = _normalize_lang(lang)
                             if _is_probable_lang_code(code):
                                 _add_locale_candidate(locale_urls, code, href)
-
+    # start initial sitemap parsing
     for sm_url in sitemap_urls:
         _parse_sitemap(sm_url)
 
@@ -655,7 +688,7 @@ def _leg2_sitemap(base_url: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Public function 1 — Playwright crawler
+#  Playwright crawler function that is publically accessible
 # ---------------------------------------------------------------------------
 
 def gather_pillar1_facts(url: str) -> dict:
@@ -705,8 +738,7 @@ def gather_pillar1_facts(url: str) -> dict:
                     "Chrome/131.0.0.0 Safari/537.36"
                 )
             )
-            # Hide the Playwright webdriver flag — many enterprise sites (e.g. SFCC/Yottaa)
-            # detect navigator.webdriver=true and serve bot-mitigation pages without hreflang or CMP.
+            # Hide the Playwright webdriver flag (reduces bot detection apparently)
             page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
             page.set_default_timeout(15000)
 
@@ -714,6 +746,7 @@ def gather_pillar1_facts(url: str) -> dict:
             try:
                 _nav_resp = page.goto(url, wait_until="domcontentloaded")
             except Exception as nav_err:
+                # retry http version if we get protocol error
                 if "ERR_HTTP2_PROTOCOL_ERROR" in str(nav_err):
                     plog(f"[crawler] HTTP/2 error, retrying with HTTP/1.1...")
                     browser.close()
@@ -732,8 +765,7 @@ def gather_pillar1_facts(url: str) -> dict:
                     raise
             plog(f"[crawler] HTTP {_nav_resp.status if _nav_resp else 0} | title={page.title()!r} | body={len(page.content())} chars")
 
-            # Wait for hreflang tags to appear — JS frameworks (e.g. Next.js) may inject
-            # them after domcontentloaded, so reading immediately can return 0 tags.
+            # Wait for hreflang tags to appear since they can be injected after document loaded
             try:
                 page.wait_for_selector('link[rel="alternate"][hreflang]', state="attached", timeout=5000)
             except Exception:
@@ -741,17 +773,20 @@ def gather_pillar1_facts(url: str) -> dict:
                 # Give JS-rendered locales a bit more time before locale detection.
                 page.wait_for_timeout(3000)
 
+            # extract hreflang tags
             raw_hreflang = page.evaluate("""() => {
                 return Array.from(
                     document.querySelectorAll('link[rel="alternate"][hreflang]')
                 ).map(el => ({ lang: el.hreflang.toLowerCase(), href: el.href }));
             }""")
 
+            # fill in hreflang and xdefault results
             result["hreflang_present"] = len(raw_hreflang) > 0
             x_default = next((t for t in raw_hreflang if t.get("lang") == "x-default"), None)
             result["hreflang_x_default_present"] = x_default is not None
             result["hreflang_x_default_url"] = x_default.get("href") if x_default else None
 
+            # store full variants 
             variant_set = {
                 str(t.get("lang", "")).replace("_", "-").upper()
                 for t in raw_hreflang
@@ -760,6 +795,7 @@ def gather_pillar1_facts(url: str) -> dict:
 
             locale_urls = _detect_locale_urls(page, url)
 
+            # get lang for homepage and add to locale candidates if valid and not already present
             html_lang = page.evaluate("""() => {
                 return document.documentElement.lang
                     || document.querySelector('meta[property="og:locale"]')?.getAttribute('content')
@@ -784,15 +820,15 @@ def gather_pillar1_facts(url: str) -> dict:
             result["language_selector_type"] = _detect_language_selector_type(page)
 
             # Give GTM-injected CMPs time to fire before checking the DOM.
-            # Sites that load their CMP via GTM rather than a direct script tag
-            # need a brief pause — without this they always appear as "no banner".
             page.wait_for_timeout(10000)
 
+            # check for cookies
             cookie_info = _detect_cookie_banner(page)
             result["cookie_banner_detected"] = cookie_info.get("detected", False)
             result["cookie_provider"] = cookie_info.get("provider")
             plog(f"[crawler] Cookie banner: {result['cookie_banner_detected']} (provider: {result['cookie_provider']})")
 
+            # check to see if the site uses a plugin
             plugin_info = _detect_translation_plugin(page)
             result["translation_plugin"] = plugin_info.get("plugin")
             if result["translation_plugin"] and plugin_info.get("languages"):
@@ -895,16 +931,10 @@ def gather_pillar1_facts(url: str) -> dict:
 
     return result
 
-
-# ---------------------------------------------------------------------------
-# Public function 2 — GPT-5 mixed language detection
-# ---------------------------------------------------------------------------
-
 def _flatten_mixed_language_issues(issues: list) -> list:
     """
-    Rescue locale issue objects that GPT nested inside language_hits instead of
-    placing at the top level. Detection rule: any language_hits item that contains
-    a 'locale' key is a misplaced locale issue, not a real language hit.
+    Rescue locale issue objects that GPT nested inside language_hits instead of placing at the top level. 
+    Any language_hits item that contains a 'locale' key is a misplaced locale issue, not a real language hit.
     """
     result = []
     for issue in issues:
@@ -912,7 +942,7 @@ def _flatten_mixed_language_issues(issues: list) -> list:
         rescued = []
         for hit in issue.get('language_hits', []):
             if 'locale' in hit:
-                # Merged case: hit has both language/marker_strings AND locale properties
+                #  hit has both language/marker_strings AND locale properties
                 if hit.get('language') and hit.get('marker_strings_found'):
                     real_hits.append({
                         'language': hit['language'],
@@ -932,6 +962,9 @@ def _flatten_mixed_language_issues(issues: list) -> list:
         result.extend(rescued)
     return result
 
+# ---------------------------------------------------------------------------
+# GPT-5 mixed language detection
+# ---------------------------------------------------------------------------
 
 def gather_mixed_language_issues(domain: str, locale_urls: dict) -> list:
     """
@@ -1028,6 +1061,8 @@ Return an empty array if no issues are found. No markdown fences.
         clean = re.sub(r"\s*```$", "", clean)
         try:
             result = json.loads(clean)
+
+        # try json repair as resort if malformed json is returned
         except json.JSONDecodeError:
             try:
                 from json_repair import repair_json
