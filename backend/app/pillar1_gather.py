@@ -72,8 +72,7 @@ KNOWN_LANGUAGE_VARIANTS = {
 # Helpers
 # ---------------------------------------------------------------------------
 
-# Native language names that won't match the 2-letter ISO code regex.
-# Applied only to confirmed language-selector links, where context makes them unambiguous.
+# Native language names that won't match the 2-letter ISO code regex (kinda annoying to hardcode, but at least sometwhat helpful)
 _LANG_NAME_TO_CODE: dict[str, str] = {
     "česky": "CS", "čeština": "CS",
     "日本語": "JA",

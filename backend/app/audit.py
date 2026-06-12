@@ -411,8 +411,10 @@ def gather_competitor_benchmark_data(url: str, crawler_available_languages: list
     if crawler_available_languages is not None:
         lang_note = (
             f"AUTHORITATIVE FACT: Direct website analysis has confirmed this competitor's website "
-            f"serves the following languages (full UX): {crawler_available_languages}. "
-            f"Use these EXACT values for available_languages. Do NOT re-research them.\n\n"
+            f"serves at least these languages (full UX): {crawler_available_languages}. "
+            f"Keep all of these in available_languages. Also search the site for any additional "
+            f"full-UX language versions that may have been missed and add them. "
+            f"Do not remove the confirmed languages above.\n\n"
         )
     else:
         lang_note = ""
@@ -797,8 +799,6 @@ def run_audit(job_id: str, url: str, company_name: str, competitors: list) -> di
                 plog(f"[audit]   Comp crawler exception ({comp_url}): {e}")
         try:
             comp_data = gather_competitor_benchmark_data(comp_url, crawler_available_languages=comp_langs)
-            if comp_langs is not None:
-                comp_data["available_languages"] = comp_langs
             return comp_data
         except Exception as e:
             plog(f"[audit]   Comp GPT failed ({comp_url}): {e}")
