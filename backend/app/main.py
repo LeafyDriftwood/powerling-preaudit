@@ -482,7 +482,7 @@ def _get_pdf_assets() -> tuple[str, str]:
         css = (assets_dir / "colors_and_type.css").read_text()
         fonts_dir = assets_dir / "fonts"
         def _inline_font(m):
-            fpath = fonts_dir / m.group(1)
+            fpath = assets_dir / m.group(1)
             if fpath.exists():
                 b64 = base64.b64encode(fpath.read_bytes()).decode()
                 return f"url('data:font/opentype;base64,{b64}')"
