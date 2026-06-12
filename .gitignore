@@ -28,6 +28,7 @@ power/
 *.json
 *.txt
 test_*.py
+!test_pillar1_gather.py
 
 # misc
 dist/

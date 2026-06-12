@@ -730,7 +730,7 @@ def gather_pillar1_facts(url: str) -> dict:
         from playwright.sync_api import sync_playwright
 
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
+            browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-setuid-sandbox"])
             page = browser.new_page(
                 user_agent=(
                     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -750,7 +750,7 @@ def gather_pillar1_facts(url: str) -> dict:
                 if "ERR_HTTP2_PROTOCOL_ERROR" in str(nav_err):
                     plog(f"[crawler] HTTP/2 error, retrying with HTTP/1.1...")
                     browser.close()
-                    browser = p.chromium.launch(headless=True, args=["--disable-http2"])
+                    browser = p.chromium.launch(headless=True, args=["--disable-http2", "--no-sandbox", "--disable-setuid-sandbox"])
                     page = browser.new_page(
                         user_agent=(
                             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
