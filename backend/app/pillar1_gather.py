@@ -304,6 +304,7 @@ def _detect_cookie_banner(page) -> dict:
             { name: "Complianz",      patterns: ["cdn.complianz.io", "complianz.io"] },
             { name: "CookieFirst",    patterns: ["consent.cookiefirst.com", "cookiefirst.com"] },
             { name: "Consentmanager", patterns: ["cdn.consentmanager.net", "consentmanager.net"] },
+            { name: "Cookieconsent",  patterns: ["cookieconsent.min.js", "cookieconsent.js", "/cookieconsent/"] },
             { name: "Pandectes",      patterns: ["pandectes.io"] },
             { name: "Sourcepoint",    patterns: ["sourcepoint.com", "sp-prod.net", "cdn.privacy-mgmt.com"] },
             { name: "Civic",          patterns: ["cc.cdn.civiccomputing.com", "cookiecontrol.civiccomputing.com"] },
@@ -559,6 +560,7 @@ def _leg1_curl(url: str) -> dict:
             ("Consentmanager", ["cdn.consentmanager.net"]),
             ("Civic",          ["cc.cdn.civiccomputing.com"]),
             ("PiwikPRO",       ["piwik.pro"]),
+            ("Cookieconsent",  ["cookieconsent.min.js", "cookieconsent.js", "/cookieconsent/"]),
         ]
         script_srcs = [s.get("src", "") for s in soup.find_all("script", src=True)]
         for provider, patterns in _CMP_SCRIPT_SIGNALS:
