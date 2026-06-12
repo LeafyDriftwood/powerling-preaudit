@@ -72,8 +72,34 @@ KNOWN_LANGUAGE_VARIANTS = {
 # Helpers
 # ---------------------------------------------------------------------------
 
+# Native language names that won't match the 2-letter ISO code regex.
+# Applied only to confirmed language-selector links, where context makes them unambiguous.
+_LANG_NAME_TO_CODE: dict[str, str] = {
+    "česky": "CS", "čeština": "CS",
+    "日本語": "JA",
+    "한국어": "KO",
+    "中文": "ZH", "简体中文": "ZH", "繁體中文": "ZH",
+    "ελληνικά": "EL",
+    "українська": "UK",
+    "dansk": "DA",
+    "svenska": "SV",
+    "norsk": "NO",
+    "suomi": "FI",
+    "slovenčina": "SK",
+    "slovenščina": "SL",
+    "hrvatski": "HR",
+    "български": "BG",
+    "română": "RO",
+    "magyar": "HU",
+    "العربية": "AR",
+    "עברית": "HE",
+    "ภาษาไทย": "TH",
+    "tiếng việt": "VI",
+}
+
+
 def _normalize_lang(raw: str) -> str:
-    """Split delimeters, uppercase, and return base language code."""
+    """Split delimiters, uppercase, and return base language code."""
     return re.split(r'[-_]', raw)[0].upper()
 
 
@@ -225,6 +251,8 @@ def _detect_locale_urls(page, base_url: str) -> dict:
             code = _normalize_lang(lang_attr)
         elif re.match(r'^[A-Za-z]{2}(-[A-Za-z]{2})?$', text):
             code = text[:2].upper()
+        elif _LANG_NAME_TO_CODE.get(text.lower()):
+            code = _LANG_NAME_TO_CODE[text.lower()]
         else:
             code = _extract_code_from_href(href, base_url)
 
