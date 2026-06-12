@@ -199,7 +199,7 @@ AL counts ONLY languages where the FULL user experience is available:
 navigation, product catalog, cart, checkout, and customer service all in that language.
 Do NOT count: partial translations, footer-only language switches, blog-only languages,
 or third-party subdomains not part of the main site.
-The crawler has already confirmed the available languages above. Use those exact values.
+The crawler has confirmed the available languages above — keep all of them. Also search the site for any additional full-UX language versions that may have been missed (which could be on separate domains, ccTLDs, or subdirectories) and add them.
 
 STEP 5 - Note translation quality on the website:
 Any observations on machine vs. professional translation, inconsistencies, or untranslated sections.
