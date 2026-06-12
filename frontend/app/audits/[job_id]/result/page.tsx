@@ -40,6 +40,7 @@ interface Facts {
     lcr_tier: string;
     lcr_available: number;
     lcr_required: number;
+    lcr_covered: number;
     available_languages: string[];
     available_language_variants?: string[];
     required_languages: string[];
@@ -178,7 +179,7 @@ function LcrDonut({ score, tier }: { score: number; tier: string }) {
       </svg>
       <div className="flex items-center gap-1">
         <span className="text-xs font-medium text-gray-600">{tier}</span>
-        <MetricPopover title="Languages available / required" content="Available: languages where the full UX (navigation, catalog, checkout) is live. Required: languages needed to serve the company's key markets, derived from traffic data and geographic footprint. The ratio of the two is the LCR score." />
+        <MetricPopover title="Language Coverage Rate" content="Required: languages needed to serve the company's key markets, derived from traffic data and geographic footprint. Available: languages where the full UX (navigation, catalog, checkout) is live. LCR = percentage of required languages that are currently live on the site." />
       </div>
     </div>
   );
@@ -506,9 +507,9 @@ export default function ResultPage() {
               <div className="flex items-center justify-between">
                 <LcrDonut score={p1.lcr_score ?? 0} tier={p1.lcr_tier ?? ""} />
                 <div className="flex flex-col gap-1 text-right">
-                  <span className="text-xs text-gray-500">Languages available</span>
+                  <span className="text-xs text-gray-500">Languages live on site</span>
                   <span className="text-2xl font-bold text-gray-900">{p1.lcr_available ?? 0}</span>
-                  <span className="text-xs text-gray-400">of {p1.lcr_required ?? 0} required</span>
+                  <span className="text-xs text-gray-400">covering {p1.lcr_covered ?? 0} of {p1.lcr_required ?? 0} required</span>
                 </div>
               </div>
 

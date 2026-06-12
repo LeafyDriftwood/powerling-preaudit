@@ -545,6 +545,7 @@ def build_facts_pack(
             "lcr_tier": lcr_tier,
             "lcr_available": len(lcr_available_langs),
             "lcr_required": len(lcr_required_langs),
+            "lcr_covered": len(set(lcr_available_langs) & set(lcr_required_langs)),
         },
         "pillar_2_website_health": pillar2 or {
             "note": "PageSpeed data not available."
