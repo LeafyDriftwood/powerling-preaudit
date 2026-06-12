@@ -9,8 +9,10 @@ export async function GET(req: NextRequest) {
   const shouldRefresh = searchParams.get('should-refresh');
 
   // error if token is not present 
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL!;
+
   if (!token) {
-    return NextResponse.redirect(new URL('/', req.url));
+    return NextResponse.redirect(new URL('/', appUrl));
   }
 
   // call sso api using the token
@@ -27,7 +29,7 @@ export async function GET(req: NextRequest) {
 
     // redirect to homepage if sso api call fails
     if (!ssoRes.ok) {
-      return NextResponse.redirect(new URL('/', req.url));
+      return NextResponse.redirect(new URL('/', appUrl));
     }
 
     // extract user identifer
@@ -37,7 +39,7 @@ export async function GET(req: NextRequest) {
 
     // redirect to homepage if identifer is not present
     if (!identifier) {
-      return NextResponse.redirect(new URL('/', req.url));
+      return NextResponse.redirect(new URL('/', appUrl));
     }
 
 
@@ -76,8 +78,8 @@ export async function GET(req: NextRequest) {
     } catch (e) { console.error('[auth] failed to upsert user record:', e); }
 
     // redirect to home page
-    return NextResponse.redirect(new URL('/', req.url));
+    return NextResponse.redirect(new URL('/', appUrl));
   } catch {
-    return NextResponse.redirect(new URL('/', req.url));
+    return NextResponse.redirect(new URL('/', appUrl));
   }
 }

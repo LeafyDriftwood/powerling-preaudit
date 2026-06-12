@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
 
     // guard against missing user
     if (!session.user?.identifier) {
-        return NextResponse.redirect(new URL('/', req.url));
+        return NextResponse.redirect(new URL('/', process.env.NEXT_PUBLIC_APP_URL!));
     }
 
     // update shouldRefresh time
@@ -35,5 +35,5 @@ export async function GET(req: NextRequest) {
     } catch (e) { console.error('[auth] failed to update last_connected_at on refresh:', e); }
 
     // redirect to home page
-    return NextResponse.redirect(new URL(nextUrl || '/', req.url));
+    return NextResponse.redirect(new URL(nextUrl || '/', process.env.NEXT_PUBLIC_APP_URL!));
 }
