@@ -25,7 +25,7 @@ export async function middleware(req: NextRequest) {
     if (session.user) {
       // redirect to refresh page if shouldRefresh time has passed
       if (session.user.shouldRefresh < Date.now() / 1000) {
-        const next = encodeURIComponent(req.url);
+        const next = encodeURIComponent(`${process.env.NEXT_PUBLIC_APP_URL}${req.nextUrl.pathname}${req.nextUrl.search}`);
         const refreshCallback = encodeURIComponent(`${process.env.NEXT_PUBLIC_APP_URL}/auth/refresh?next=${next}`);
         return NextResponse.redirect(`https://${process.env.SSO_HOST}/refresh-token?redirect=${refreshCallback}`);
       }
