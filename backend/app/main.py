@@ -472,6 +472,7 @@ def get_user(email: str, submitted_by: str = Depends(verify_token)):
 _PDF_ASSETS_DIR = Path(__file__).parent / "pdf_assets"
 _pdf_css_cache = None
 _pdf_logo_cache = None
+_pdf_semaphore = asyncio.Semaphore(1)
 
 
 def _get_pdf_assets() -> tuple[str, str]:
@@ -651,7 +652,8 @@ async def get_audit_pdf(job_id: str, _submitted_by: str = Depends(verify_token))
             return pdf_bytes
 
     try:
-        pdf_bytes = await asyncio.wait_for(_render(), timeout=30.0)
+        async with _pdf_semaphore:
+            pdf_bytes = await asyncio.wait_for(_render(), timeout=30.0)
     except asyncio.TimeoutError:
         raise HTTPException(status_code=504, detail="PDF generation timed out")
 
