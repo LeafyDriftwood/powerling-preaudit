@@ -449,7 +449,7 @@ export default function ResultPage() {
             <a href={meta.url} target="_blank" rel="noopener noreferrer" className="text-gray-500 mt-1 hover:text-green-700 hover:underline">{meta.url}</a>
             {meta.created_at && (
               <p className="text-gray-400 text-xs mt-1">
-                Generated {new Date(meta.created_at).toLocaleDateString("en-US", {
+                AI-generated report · {new Date(meta.created_at).toLocaleDateString("en-US", {
                   month: "long", day: "numeric", year: "numeric",
                 })}
               </p>
