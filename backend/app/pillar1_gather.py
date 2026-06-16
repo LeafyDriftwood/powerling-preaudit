@@ -874,7 +874,7 @@ def gather_pillar1_facts(url: str) -> dict:
 
             # Give GTM-injected CMPs time to fire before checking the DOM.
             page.wait_for_timeout(10000)
-
+            
             # check for cookies
             cookie_info = _detect_cookie_banner(page)
             result["cookie_banner_detected"] = cookie_info.get("detected", False)

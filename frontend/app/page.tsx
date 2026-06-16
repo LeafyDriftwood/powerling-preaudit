@@ -328,8 +328,7 @@ export default function Home() {
 
         {/* Header */}
         <div className="flex flex-col items-center gap-2 text-center">
-          <h1 className="text-4xl font-bold text-gray-900 tracking-tight">AlignAI</h1>
-          <p className="text-base font-semibold text-green-700">Pre-Audit</p>
+          <h1 className="text-4xl font-bold text-gray-900 tracking-tight">Website AI Pre-Audit</h1>
           <p className="text-sm text-gray-400 mt-1">Automated website audit reports</p>
         </div>
 
