@@ -443,13 +443,14 @@ export default function ResultPage() {
       <div className="max-w-6xl mx-auto px-6 py-10 flex flex-col gap-10">
 
         {/* Header */}
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex items-start justify-between gap-6">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">{meta.company_name}</h1>
-            <a href={meta.url} target="_blank" rel="noopener noreferrer" className="text-gray-500 mt-1 hover:text-green-700 hover:underline">{meta.url}</a>
+            <p className="text-green-700 text-xs font-mono tracking-widest uppercase mb-3">AI Generated Report</p>
+            <h1 className="text-3xl font-bold text-gray-900 tracking-tight mb-2">{meta.company_name}</h1>
+            <a href={meta.url} target="_blank" rel="noopener noreferrer" className="text-gray-500 text-sm hover:text-green-700 hover:underline transition-colors">{meta.url}</a>
             {meta.created_at && (
-              <p className="text-gray-400 text-xs mt-1">
-                AI-generated report · {new Date(meta.created_at).toLocaleDateString("en-US", {
+              <p className="text-gray-400 text-xs mt-3">
+                Generated {new Date(meta.created_at).toLocaleDateString("en-US", {
                   month: "long", day: "numeric", year: "numeric",
                 })}
               </p>
@@ -458,7 +459,7 @@ export default function ResultPage() {
           <button
             onClick={handleDownloadPdf}
             disabled={downloading}
-            className={`flex items-center gap-1.5 text-sm font-semibold text-green-700 hover:text-green-900 cursor-pointer transition-colors whitespace-nowrap ${downloading ? "animate-pulse" : ""}`}
+            className={`flex items-center gap-1.5 text-sm font-semibold text-green-700 hover:text-green-900 cursor-pointer transition-colors whitespace-nowrap mt-1 ${downloading ? "animate-pulse" : ""}`}
           >
             <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M7 1v8M4 6l3 3 3-3M1 12h12" />
