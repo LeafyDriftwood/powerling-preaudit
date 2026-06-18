@@ -518,7 +518,7 @@ export default function ResultPage() {
                 <div className="bg-gray-50 rounded-lg p-3">
                   <div className="flex items-center justify-between mb-1">
                     <p className="text-xs text-gray-500">Hreflang</p>
-                    <MetricPopover title="Hreflang tags" content="HTML tags that tell search engines which language and region version of a page to serve and should be in the page's header. Missing/incorrectly placed hreflang tags hurt international SEO ranking for multilingual sites." />
+                    <MetricPopover title="Hreflang tags" content="HTML tags that tell search engines which language and region version of a page to serve and should be in the page's header. Missing/incorrectly placed hreflang tags hurt international SEO ranking for multilingual sites. N/A means the result is inconclusive." />
                   </div>
                   {p1.crawler_ran === false
                     ? <p className="font-semibold text-gray-400">N/A</p>
@@ -528,7 +528,7 @@ export default function ResultPage() {
                 <div className="bg-gray-50 rounded-lg p-3">
                   <div className="flex items-center justify-between mb-1">
                     <p className="text-xs text-gray-500">x-default</p>
-                    <MetricPopover title="x-default Hreflang" content="A special hreflang tag that designates the fallback page for users whose language or region doesn't match any of the targeted locales. Without it, search engines have no default to fall back on." />
+                    <MetricPopover title="x-default Hreflang" content="A special hreflang tag that designates the fallback page for users whose language or region doesn't match any of the targeted locales. Without it, search engines have no default to fall back on. N/A means the result is inconclusive." />
                   </div>
                   {p1.crawler_ran === false
                     ? <p className="font-semibold text-gray-400">N/A</p>
