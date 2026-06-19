@@ -13,6 +13,8 @@ import re
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
 
+import pycountry
+
 try:
     from app.log_ctx import plog
 except ImportError:
@@ -53,13 +55,14 @@ COMMON_LANG_CODES = {
     "AF", "AR", "AZ", "BE", "BG", "BN", "CA", "CS", "CY", "DA", "DE", "EL",
     "EN", "ES", "ET", "FA", "FI", "FR", "GL", "HE", "HI", "HR", "HT", "HU",
     "ID", "IS", "IT", "JA", "KA", "KK", "KO", "LT", "LV", "MK", "MN", "MS",
-    "MY", "NE", "NL", "NO", "PL", "PT", "RO", "RU", "SK", "SL", "SQ", "SR",
-    "SV", "SW", "TA", "TH", "TL", "TR", "UK", "UR", "VI", "ZH",
+    "MY", "NB", "NE", "NL", "NN", "NO", "PL", "PT", "RO", "RU", "SK", "SL",
+    "SQ", "SR", "SV", "SW", "TA", "TH", "TL", "TR", "UK", "UR", "VI", "ZH",
 }
 
 # Genuine language variants where region changes translation content. Only these are preserved as distinct entries in available_languages.
 KNOWN_LANGUAGE_VARIANTS = {
     "ZH-CN", "ZH-TW", "ZH-HK",
+    "ZH-HANS", "ZH-HANT",
     "PT-BR", "PT-PT",
     "FR-CA",
     "ES-MX", "ES-ES",
@@ -107,6 +110,32 @@ def _is_probable_lang_code(code: str) -> bool:
     return bool(code and re.fullmatch(r"[A-Z]{2}", code) and code in COMMON_LANG_CODES)
 
 
+# This is a specific edge case discovered duirng an audit of the lululemon site, where my-bag was detected
+# as a locale. TO address this, we'll have to treat certain 2-letter codes as ambiguous and verify them further. 
+_AMBIGUOUS_LANG_CODES = {"BE", "HE", "HI", "IS", "IT", "MY", "NO"}
+
+
+def _is_locale_segment(seg: str) -> bool:
+    """True if seg looks like a real locale tag. Generally checks for structure, but for bases that double as common
+    English words, requires the suffix to be a real ISO 3166-1 country or ISO 15924
+    script, to rule out coincidental matches like my-bag, no-go, my-cart."""
+    parts = re.split(r'[-_]', seg)
+    if not re.fullmatch(r"[a-zA-Z]{2}", parts[0]):
+        return False
+    if len(parts) == 1:
+        return True
+    if len(parts) != 2:
+        return False
+    tail = parts[1]
+    if parts[0].upper() not in _AMBIGUOUS_LANG_CODES:
+        return bool(re.fullmatch(r"[a-zA-Z]{2,4}", tail))
+    if re.fullmatch(r"[a-zA-Z]{2}", tail):
+        return pycountry.countries.get(alpha_2=tail.upper()) is not None
+    if re.fullmatch(r"[a-zA-Z]{4}", tail):
+        return pycountry.scripts.get(alpha_4=tail.capitalize()) is not None
+    return False
+
+
 def _add_locale_candidate(locale_urls: dict, code: Optional[str], href: Optional[str]) -> None:
     """Add a locale candidate to the locale_urls dict if it has a valid code and href, and we don't already have an entry for that code. X-DEFAULT is ignored since it's not a real language."""
     if not code or not href:
@@ -148,14 +177,14 @@ def _extract_code_from_href(href: str, base_url: str) -> Optional[str]:
     # Check for code in path segements
     path_segments = [s for s in urlparse(href).path.split("/") if s][:3]
     for i, seg in enumerate(path_segments):
-        if re.fullmatch(r"[a-z]{2}(?:[-_][a-z]{2,4})?", seg, re.IGNORECASE):
+        if _is_locale_segment(seg):
             code = _normalize_lang(seg)
             if _is_probable_lang_code(code):
                 # Country-first URLs (/nl/en/, /it/en/): if the next segment is also
                 # a lang code, prefer it, the first is a country code, second is likely language.
                 if i + 1 < len(path_segments):
                     next_seg = path_segments[i + 1]
-                    if re.fullmatch(r"[a-z]{2}(?:[-_][a-z]{2,4})?", next_seg, re.IGNORECASE):
+                    if _is_locale_segment(next_seg):
                         next_code = _normalize_lang(next_seg)
                         if _is_probable_lang_code(next_code):
                             return next_code
@@ -945,6 +974,16 @@ def gather_pillar1_facts(url: str) -> dict:
         v = lang.replace("_", "-").upper()
         if v in KNOWN_LANGUAGE_VARIANTS:
             all_variants.add(v)
+
+    # Discard script-form variants for their region-form equivalent when a site tags both for the same locale (e.g. zh-Hans + zh-CN for Simplified Chinese)
+    _SCRIPT_VARIANT_SUPERSEDED_BY = {
+        "ZH-HANS": {"ZH-CN"},
+        "ZH-HANT": {"ZH-TW", "ZH-HK"},
+    }
+    for script_form, region_forms in _SCRIPT_VARIANT_SUPERSEDED_BY.items():
+        if script_form in all_variants and all_variants & region_forms:
+            all_variants.discard(script_form)
+
     result["available_language_variants"] = sorted(all_variants)
 
     # hreflang fields
