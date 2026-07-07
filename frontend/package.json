@@ -12,7 +12,7 @@
     "@headlessui/react": "^2.2.10",
     "iron-session": "^8.0.4",
     "jose": "^6.2.3",
-    "next": "16.1.6",
+    "next": "^16.2.10",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-hot-toast": "^2.6.0"
