@@ -586,7 +586,7 @@
           {% if p4.trustpilot_score %}
           <div class="rev">
             {% if p4.trustpilot_url %}<a href="{{ p4.trustpilot_url }}" class="plat" style="color:var(--c-blue);text-decoration:none;">Trustpilot</a>{% else %}<span class="plat">Trustpilot</span>{% endif %}
-            <span class="track"><span style="width:{{ ((p4.trustpilot_score or 0) / 5 * 100)|int }}%;"></span></span>
+            <span class="track"><span style="width:{{ ((p4.trustpilot_score | float(0)) / 5 * 100)|int }}%;"></span></span>
             <span class="num">{{ p4.trustpilot_score }}</span>
             <span class="cnt">{{ (p4.trustpilot_reviews | format_count) if p4.trustpilot_reviews else '?' }} reviews</span>
           </div>
@@ -594,7 +594,7 @@
           {% if p4.glassdoor_score %}
           <div class="rev">
             {% if p4.glassdoor_url %}<a href="{{ p4.glassdoor_url }}" class="plat" style="color:var(--c-blue);text-decoration:none;">Glassdoor</a>{% else %}<span class="plat">Glassdoor</span>{% endif %}
-            <span class="track"><span style="width:{{ ((p4.glassdoor_score or 0) / 5 * 100)|int }}%;"></span></span>
+            <span class="track"><span style="width:{{ ((p4.glassdoor_score | float(0)) / 5 * 100)|int }}%;"></span></span>
             <span class="num">{{ p4.glassdoor_score }}</span>
             <span class="cnt">{{ (p4.glassdoor_reviews | format_count) if p4.glassdoor_reviews else '?' }} reviews</span>
           </div>
@@ -602,7 +602,7 @@
           {% if p4.indeed_score %}
           <div class="rev">
             {% if p4.indeed_url %}<a href="{{ p4.indeed_url }}" class="plat" style="color:var(--c-blue);text-decoration:none;">Indeed</a>{% else %}<span class="plat">Indeed</span>{% endif %}
-            <span class="track"><span style="width:{{ ((p4.indeed_score or 0) / 5 * 100)|int }}%;"></span></span>
+            <span class="track"><span style="width:{{ ((p4.indeed_score | float(0)) / 5 * 100)|int }}%;"></span></span>
             <span class="num">{{ p4.indeed_score }}</span>
             <span class="cnt">{{ (p4.indeed_reviews | format_count) if p4.indeed_reviews else '?' }} reviews</span>
           </div>

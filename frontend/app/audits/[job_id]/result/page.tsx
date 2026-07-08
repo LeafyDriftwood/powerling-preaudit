@@ -323,6 +323,7 @@ export default function ResultPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showRaw, setShowRaw] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [downloading, setDownloading] = useState(false);
 
   async function handleDownloadPdf() {
@@ -892,10 +893,10 @@ export default function ResultPage() {
               <div className="px-5 py-3 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
                 <span className="text-sm font-semibold text-gray-600">Raw Report JSON</span>
                 <button
-                  onClick={() => navigator.clipboard.writeText(JSON.stringify(data, null, 2))}
-                  className="text-xs text-green-700 hover:text-green-800 font-medium"
+                  onClick={() => { navigator.clipboard.writeText(JSON.stringify(data, null, 2)); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
+                  className={`text-xs font-medium transition-colors ${copied ? 'text-gray-400' : 'text-green-700 hover:text-green-800'}`}
                 >
-                  Copy
+                  {copied ? 'Copied ✓' : 'Copy'}
                 </button>
               </div>
               <pre className="p-5 text-xs text-gray-800 overflow-auto max-h-[70vh] leading-relaxed">
