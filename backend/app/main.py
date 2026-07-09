@@ -107,7 +107,7 @@ class AuditJob(Base):
     status = Column(String, default="pending")  # pending | processing | completed | error
     result = Column(Text, nullable=True)         # JSON string of full report
     error_message = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
 
@@ -134,7 +134,7 @@ def run_audit_job(job_id: str, url: str, company_name: str, competitors: list):
             plog("[audit] ERROR: job not found in DB, aborting.")
             return
         job.status = "processing"
-        job.started_at = datetime.utcnow()
+        job.started_at = datetime.now(timezone.utc)
         db.commit()
 
         # Run the pipeline
@@ -143,7 +143,7 @@ def run_audit_job(job_id: str, url: str, company_name: str, competitors: list):
         # Save completed result
         job = db.query(AuditJob).filter(AuditJob.id == job_id).first()
         job.status = "completed"
-        job.completed_at = datetime.utcnow()
+        job.completed_at = datetime.now(timezone.utc)
         job.result = json.dumps(result)
         db.commit()
 
@@ -158,7 +158,7 @@ def run_audit_job(job_id: str, url: str, company_name: str, competitors: list):
         job = db.query(AuditJob).filter(AuditJob.id == job_id).first()
         if job:
             job.status = "error"
-            job.completed_at = datetime.utcnow()
+            job.completed_at = datetime.now(timezone.utc)
             job.error_message = str(e)
             db.commit()
             try:
@@ -237,7 +237,7 @@ async def create_audit(
         competitor_3=competitor_3,
         submitted_by=submitted_by,
         status="pending",
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
     )
     db.add(job)
     db.commit()
@@ -315,6 +315,47 @@ def get_audit_result(job_id: str, submitted_by: str = Depends(verify_token)):
         raise HTTPException(status_code=500, detail="Audit completed but result is missing")
     return json.loads(job.result)
 
+@app.post("/audits/{job_id}/retry")
+def retry_audit(job_id: str, background_tasks: BackgroundTasks, submitted_by: str = Depends(verify_token)):
+    """Rerun an audit job that previously failed"""
+    db = SessionLocal()
+    job = db.query(AuditJob).filter(AuditJob.id == job_id).first()
+    if not job:
+        db.close()
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.status != "error":
+        db.close()
+        raise HTTPException(status_code=400, detail="Can only retry jobs that are in error state")
+    
+    # reset job status and clear result/error
+    job.status = "pending"
+    job.result = None
+    job.error_message = None
+    job.started_at = None
+    job.completed_at = None
+    job.created_at = datetime.now(timezone.utc)
+
+    # run the audit in the background again
+    competitors = [c for c in [job.competitor_1, job.competitor_2, job.competitor_3] if c and c.strip()]
+    background_tasks.add_task(
+        run_audit_job,
+        job_id,
+        job.url,
+        job.company_name,
+        competitors,
+    )
+
+    db.commit()
+    db.refresh(job)
+    db.close()
+
+
+    return {
+        "job_id": job_id,
+        "status": "pending",
+        "created_at": job.created_at.isoformat(),
+    }
+
 
 class UserInsertBody(BaseModel):
     role: str = "user"
@@ -351,15 +392,15 @@ def current_user(body: UserInsertBody, submitted_by: str = Depends(verify_token)
         user = User(
             email=submitted_by,
             role=body.role,
-            first_connected_at=datetime.utcnow(),
-            last_connected_at=datetime.utcnow(),
+            first_connected_at=datetime.now(timezone.utc),
+            last_connected_at=datetime.now(timezone.utc),
         )
         db.add(user)
         db.commit()
         db.refresh(user)
     else:
         # update last_connected_at on every login (NOTE: role not updaed after first login)
-        user.last_connected_at = datetime.utcnow()
+        user.last_connected_at = datetime.now(timezone.utc)
         db.commit()
         db.refresh(user)
     db.close()

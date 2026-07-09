@@ -884,7 +884,7 @@ export default function ResultPage() {
         <div className="border-t border-gray-200 pt-6">
           <button
             onClick={() => setShowRaw((v) => !v)}
-            className="text-sm text-gray-400 hover:text-gray-600 font-medium"
+            className="text-sm text-gray-400 hover:text-gray-600 font-medium cursor-pointer"
           >
             {showRaw ? "Hide" : "View"} raw JSON
           </button>
@@ -894,7 +894,7 @@ export default function ResultPage() {
                 <span className="text-sm font-semibold text-gray-600">Raw Report JSON</span>
                 <button
                   onClick={() => { navigator.clipboard.writeText(JSON.stringify(data, null, 2)); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
-                  className={`text-xs font-medium transition-colors ${copied ? 'text-gray-400' : 'text-green-700 hover:text-green-800'}`}
+                  className={`text-xs font-medium transition-colors cursor-pointer ${copied ? 'text-gray-400' : 'text-green-700 hover:text-green-800'}`}
                 >
                   {copied ? 'Copied ✓' : 'Copy'}
                 </button>

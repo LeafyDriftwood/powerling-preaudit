@@ -64,6 +64,19 @@ export async function getAuditResult(job_id: string) {
   return parseJsonOrThrow(response, 'Failed to fetch audit result.');
 }
 
+// retry an audit job
+export async function retryAudit(job_id: string) {
+  // get headers, call api
+  const headers = await getAuthHeader();
+  const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/audits/${job_id}/retry`, {
+    method: 'POST',
+    headers: headers,
+  });
+
+  // handle response
+  return parseJsonOrThrow(response, 'Failed to retry audit job.');
+}
+
 // return the current user
 export async function getCurrentUser() {
   const session = await getSession();

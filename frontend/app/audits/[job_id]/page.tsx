@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { getAuditDetails } from '@/lib/actions';
+import { getAuditDetails, retryAudit } from '@/lib/actions';
 
 interface AuditJob {
   id: string;
@@ -37,6 +37,7 @@ export default function StatusPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [msgIndex, setMsgIndex] = useState(0);
+  const [retrying, setRetrying] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const msgIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -140,6 +141,29 @@ export default function StatusPage() {
             {job?.error_message && (
               <p className="text-sm text-red-500 bg-red-50 rounded-lg px-4 py-3 w-full text-left">{job.error_message}</p>
             )}
+            <button
+              onClick={async () => {
+                setRetrying(true);
+                try {
+                  await retryAudit(job_id);
+                  intervalRef.current = setInterval(async () => {
+                    const data = await getAuditDetails(job_id);
+                    setJob(data);
+                    if (data.status === 'completed' || data.status === 'error') {
+                      if (intervalRef.current) clearInterval(intervalRef.current);
+                      if (data.status === 'completed') router.push(`/audits/${job_id}/result`);
+                      else setRetrying(false);
+                    }
+                  }, 2000);
+                } catch {
+                  setRetrying(false);
+                }
+              }}
+              disabled={retrying}
+              className="bg-green-700 text-white rounded-xl px-6 py-3 font-semibold text-sm hover:bg-green-800 transition cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {retrying ? 'Restarting…' : 'Retry Audit'}
+            </button>
           </>
         )}
 
