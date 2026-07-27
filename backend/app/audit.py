@@ -194,13 +194,25 @@ Choose the most specific evidence type that applies:
   - traffic: this country is a top traffic source with meaningful share (at least 5% of traffic) per Semrush or Similarweb — do NOT list every traffic country, only those with significant share
 Be selective: only include markets where the company itself has direct commercial engagement. Distributors, resellers, and importers do NOT qualify — exclude them entirely.
 
-STEP 4 - Available Languages (AL) validation rule:
-AL counts ONLY languages where the FULL user experience is available:
-navigation, product catalog, cart, checkout, and customer service all in that language.
-Do NOT count: partial translations, footer-only language switches, blog-only languages,
-or third-party subdomains not part of the main site.
-The crawler confirmed these languages: {crawler_facts['available_languages']}. Keep all of them.
-Also search the site for any additional full-UX language versions that may have been missed (e.g. on separate domains, ccTLDs, or subdirectories) and include them.
+STEP 4 - Available Languages (AL):
+
+Part A — Verify crawler-detected locales:
+The crawler detected these as locale URL candidates: {crawler_facts['available_languages']}.
+The corresponding URLs are already listed above in locale_urls.
+For each code, verify the linked URL actually serves content in that language.
+If yes, include it. If the page content is in a different language, exclude the code
+(or replace it with the correct one — e.g. /be/ serving Dutch → use NL not BE).
+You do NOT need to check whether checkout or cart is translated — just that the page
+content is genuinely in that language.
+Do NOT count third-party subdomains not part of the main site.
+
+Part B — Search for additional languages:
+Comprehensively search for any languages the crawler may have missed: check the site's
+language/country selector, any ccTLDs (e.g. company.de, company.fr), subdirectory locales,
+and separate regional domains. For this part, only include languages where the FULL user experience is
+available: navigation, product catalog, cart, checkout, and customer service all in that
+language. Do NOT count partial translations, footer-only language switches, or blog-only languages.
+
 Use base ISO language codes only (e.g. EN, FR, ZH). Never use regional variants (no ZH-CN, PT-BR).
 
 STEP 5 - Note translation quality on the website:
@@ -315,7 +327,7 @@ For available_languages, use base ISO language codes only (e.g. EN, FR, ZH, PT, 
     if crawler_ran:
         crawler_set = {l.upper() for l in (crawler_facts.get("available_languages") or [])}
         gpt_set = {l.upper() for l in (pillar1_data.get("available_languages") or [])}
-        available_languages = sorted(crawler_set | gpt_set)
+        available_languages = sorted(gpt_set) if gpt_set else sorted(crawler_set)
         pillar1_data["available_languages"] = available_languages
     else:
         available_languages = list(pillar1_data.get("available_languages") or [])

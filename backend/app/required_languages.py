@@ -10,6 +10,12 @@ _ENGLISH_TOLERANT_MARKETS: set[str] = {"NL", "SE", "NO", "DK", "FI"}
 
 _VALID_EVIDENCE: set[str] = {"commercial_page", "commercial_presence", "country_selector", "traffic"}
 
+# map of variant languages to their base ISO code 
+_LANG_ALIASES: dict[str, str] = {
+    "nb": "no",  # Norwegian Bokmal -> Norwegian
+    "nn": "no",  # Norwegian Nynorsk -> Norwegian
+}
+
 
 _LANG_NAMES: dict[str, str] = {
     "af": "Afrikaans", "ar": "Arabic", "az": "Azerbaijani", "be": "Belarusian",
@@ -133,7 +139,7 @@ def compute_language_gaps(
       }
     """
     is_b2c = (business_model or "").upper() == "B2C"
-    avail = {lang.lower() for lang in (available_languages or [])}
+    avail = {_LANG_ALIASES.get(lang.lower(), lang.lower()) for lang in (available_languages or [])}
 
     _ = vertical  # just keeping it in case we want to use it for future logic
 
