@@ -28,8 +28,12 @@ from sqlalchemy.orm import sessionmaker
 
 from .audit import run_audit
 from .auth import verify_token
+from .required_languages import _LANG_NAMES as _PDF_LANG_NAMES
+from .classify import classify_company
 
 
+
+#--------------------EMAIL NOTIFICATIONS--------------------
 def send_notification_email(to: str, company_name: str, job_id: str):
     """Send an email notification to the user when their audit is complete, with a link to view the report."""
     app_url = os.environ.get("APP_URL", "")
@@ -95,6 +99,8 @@ def _set_wal_mode(dbapi_connection, connection_record):
 _audit_semaphore = threading.Semaphore(2)
 
 
+#--------------AUDIT MODELS----------------
+
 class AuditJob(Base):
     __tablename__ = "audit_jobs"
     id = Column(String, primary_key=True, index=True)
@@ -104,6 +110,9 @@ class AuditJob(Base):
     competitor_2 = Column(String, nullable=False)
     competitor_3 = Column(String, nullable=False)
     submitted_by = Column(String, nullable=True)
+    industry = Column(String, nullable=True)
+    company_size = Column(String, nullable=True)
+    business_model = Column(String, nullable=True)
     status = Column(String, default="pending")  # pending | processing | completed | error
     result = Column(Text, nullable=True)         # JSON string of full report
     error_message = Column(Text, nullable=True)
@@ -120,9 +129,19 @@ class User(Base):
 
 Base.metadata.create_all(bind=engine)
 
+#-------------------PYDANTIC MODELS----------------
+class ClassifyBody(BaseModel):
+    url: str
+    company_name: str
+
+class UserInsertBody(BaseModel):
+    role: str = "user"
+
+
+
 
 # Background task
-def run_audit_job(job_id: str, url: str, company_name: str, competitors: list):
+def run_audit_job(job_id: str, url: str, company_name: str, classification: dict, competitors: list,):
     """Runs the full audit pipeline and updates the DB record when done."""
     _ctx.job_id = job_id[:8]
     _audit_semaphore.acquire()
@@ -138,7 +157,7 @@ def run_audit_job(job_id: str, url: str, company_name: str, competitors: list):
         db.commit()
 
         # Run the pipeline
-        result = run_audit(job_id, url, company_name, competitors)
+        result = run_audit(job_id, url, company_name, classification, competitors)
 
         # Save completed result
         job = db.query(AuditJob).filter(AuditJob.id == job_id).first()
@@ -207,7 +226,7 @@ def cleanup_stale_jobs():
     db.close()
 
 
-# Endpoints
+#--------------------ENDPOINTS--------------------
 @app.get("/health")
 def health():
     return {"ok": True}
@@ -221,6 +240,9 @@ async def create_audit(
     competitor_1: str = Form(...),
     competitor_2: str = Form(...),
     competitor_3: str = Form(...),
+    industry: str = Form(...),
+    company_size: str = Form(...),
+    business_model: str = Form(...),
     submitted_by: str = Depends(verify_token),
 ):
     """Create a new audit job and start the pipeline in the background."""
@@ -236,6 +258,9 @@ async def create_audit(
         competitor_2=competitor_2,
         competitor_3=competitor_3,
         submitted_by=submitted_by,
+        industry=industry,
+        company_size=company_size,
+        business_model=business_model,
         status="pending",
         created_at=datetime.now(timezone.utc),
     )
@@ -244,12 +269,20 @@ async def create_audit(
     db.refresh(job)
     db.close()
 
+    # create classification dict
+    classification = {
+        "industry": industry,
+        "company_size": company_size,
+        "business_model": business_model,
+    }
+
     # run the audit in the background and update the job record when done
     background_tasks.add_task(
         run_audit_job,
         job_id,
         url,
         company_name,
+        classification,
         [competitor_1, competitor_2, competitor_3],
     )
 
@@ -337,11 +370,17 @@ def retry_audit(job_id: str, background_tasks: BackgroundTasks, submitted_by: st
 
     # run the audit in the background again
     competitors = [c for c in [job.competitor_1, job.competitor_2, job.competitor_3] if c and c.strip()]
+    classification = {
+        "industry": job.industry,
+        "company_size": job.company_size,
+        "business_model": job.business_model,
+    }
     background_tasks.add_task(
         run_audit_job,
         job_id,
         job.url,
         job.company_name,
+        classification,
         competitors,
     )
 
@@ -356,9 +395,11 @@ def retry_audit(job_id: str, background_tasks: BackgroundTasks, submitted_by: st
         "created_at": job.created_at.isoformat(),
     }
 
+@app.post("/classify")
+def classify_endpoint(body: ClassifyBody, _submitted_by: str = Depends(verify_token)):
+    """Classify a company's industry, size, business model, and target markets."""
+    return classify_company(body.url, body.company_name)
 
-class UserInsertBody(BaseModel):
-    role: str = "user"
 
 @app.get("/users/me")
 def get_current_user(submitted_by: str = Depends(verify_token)):
@@ -570,45 +611,6 @@ def _format_count(value) -> str:
     return f"~{value}"
 
 
-def _tier_class(tier: str) -> str:
-    return {
-        "Full Coverage": "tier-full",
-        "Strong Coverage": "tier-strong",
-        "Partial Coverage": "tier-partial",
-        "Limited Coverage": "tier-limited",
-    }.get(tier or "", "tier-partial")
-
-
-def _lcr_bar_color(score) -> str:
-    try:
-        v = float(str(score))
-        if v >= 80: return "var(--c-green-strong)"
-        if v >= 50: return "var(--c-amber)"
-        return "var(--c-red)"
-    except Exception:
-        return "var(--c-amber)"
-
-
-def _score_class_lcr(score) -> str:
-    try:
-        v = float(str(score))
-        if v >= 80: return "pos"
-        if v >= 50: return "warn"
-        return "neg"
-    except Exception:
-        return "muted"
-
-
-def _lcr_donut_color(lcr) -> str:
-    try:
-        v = float(str(lcr))
-        if v >= 100: return "#03A857"
-        if v >= 80: return "#65a30d"
-        if v >= 50: return "#ca8a04"
-        return "#C8525A"
-    except Exception:
-        return "#ca8a04"
-
 
 @app.get("/audits/{job_id}/pdf")
 async def get_audit_pdf(job_id: str, _submitted_by: str = Depends(verify_token)):
@@ -632,9 +634,6 @@ async def get_audit_pdf(job_id: str, _submitted_by: str = Depends(verify_token))
     p3 = facts.get("pillar_3_accessibility", {})
     p4 = facts.get("pillar_4_online_reputation", {})
     cf = facts.get("competitor_facts", [])
-
-    lcr = p1.get("lcr_score") or 0
-    lcr_arc = round(float(lcr) / 100 * 238.76, 1)
 
     ml_count = len(p1.get("mixed_language_issues") or [])
 
@@ -663,10 +662,11 @@ async def get_audit_pdf(job_id: str, _submitted_by: str = Depends(verify_token))
     env.globals.update({
         "score_class": _score_class,
         "score_color": _score_color,
-        "tier_class": _tier_class,
-        "lcr_bar_color": _lcr_bar_color,
-        "score_class_lcr": _score_class_lcr,
     })
+
+    client_langs = [l.upper() for l in (p1.get("available_languages") or [])]
+    comp_lang_lists = [[l.upper() for l in (comp.get("available_languages") or [])] for comp in cf]
+    all_comp_langs = sorted(set(client_langs) | {l for ls in comp_lang_lists for l in ls})
 
     tpl = env.get_template("audit_report.html")
     html = tpl.render(
@@ -675,12 +675,14 @@ async def get_audit_pdf(job_id: str, _submitted_by: str = Depends(verify_token))
         generated_date=datetime.now(timezone.utc).strftime("%B %d, %Y"),
         p1=p1, p2=p2, p3=p3, p4=p4,
         cf=cf, ui=ui,
-        lcr_arc=lcr_arc,
-        lcr_donut_color=_lcr_donut_color(lcr),
         ml_count=ml_count,
         p2_warning=p2_warning,
         css_content=css_content,
         logo_url=logo_url_str,
+        lang_names=_PDF_LANG_NAMES,
+        client_langs=client_langs,
+        comp_lang_lists=comp_lang_lists,
+        all_comp_langs=all_comp_langs,
     )
 
     async def _render():

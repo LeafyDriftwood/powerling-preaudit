@@ -15,7 +15,7 @@ Pipeline phases (run_audit):
   Phase 1b: Online reputation (pillar4_gather.py)
             YouTube API + GPT-5 web search.
   Phase 2:  Competitor data - one Playwright crawl + one gpt-5 call per competitor.
-  Phase 3:  build_facts_pack - merges all data, computes LCR deterministically.
+  Phase 3:  build_facts_pack - merges all data, computes language gap analysis.
   Phase 4:  generate_ui_content - GPT-5 Responses API, no web search.
             Produces executive_summary, per-pillar headlines/findings/recommendations,
             competitive_landscape, top_recommendations.
@@ -34,6 +34,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
 from openai import OpenAI
+from app.required_languages import compute_language_gaps
 
 try:
     from app.log_ctx import _ctx, plog
@@ -164,7 +165,6 @@ You are auditing the website {url} for globalization.
 
 The following structural facts have been confirmed by direct website analysis.
 Use these EXACT values in your JSON response for the listed fields - do not re-research them:
-  available_languages: {crawler_facts['available_languages']}
   language_selector_type: "{crawler_facts['language_selector_type']}"
     locale_urls: {locale_urls_json}
   hreflang_present: {crawler_facts['hreflang_present']} (source: {crawler_facts.get('hreflang_source', 'none')})
@@ -184,22 +184,24 @@ STEP 2 - Search for any separate regional websites or market-specific domains be
 Only count distinct apex domains or country-code TLDs (e.g. company.co.uk, company.de) that serve a specific market independently. Do NOT include subdirectory locales (e.g. company.com/uk/).
 For each found, note: domain name, primary language served, target market.
 
-STEP 3 - Derive Required Languages (RL) from the geographic footprint found in Step 1:
-RL definition: identify the top 5-8 countries by traffic share using any traffic tool (Semrush, Similarweb, etc.).
-Map each country to its dominant commercial or official language(s).
-RL = the distinct languages needed to serve those markets natively — no more, no fewer.
-required_languages must reflect the company's actual significant customer base,
-not what is already on the website and not an assumption about what a company "should" have.
-Prefer traffic data. If no traffic tool has data for this domain, fall back to the geographic
-footprint from Step 1 — use the company's key markets and regions to infer which languages
-are needed. Do not return an empty array.
+STEP 3 - Identify observed markets from your research.
+For each market where there is concrete evidence of commercial activity, output one entry in observed_markets.
+Use ISO 3166-1 alpha-2 country codes only (e.g. FR, DE, JP). Drop any code you are not confident about.
+Choose the most specific evidence type that applies:
+  - commercial_page: company operates a ccTLD or dedicated regional domain for this market (e.g. company.de, company.co.uk)
+  - commercial_presence: the company explicitly names this country as a market where it operates or generates revenue. Do NOT use for: social media posts, LinkedIn updates, regional sales contacts or phone numbers, or distributor networks.
+  - country_selector: this country appears in the site's country/region selector — ONLY use this if the selector has a small deliberate list (fewer than 20 countries); do NOT use for global dropdowns with 50+ countries
+  - traffic: this country is a top traffic source with meaningful share (at least 5% of traffic) per Semrush or Similarweb — do NOT list every traffic country, only those with significant share
+Be selective: only include markets where the company itself has direct commercial engagement. Distributors, resellers, and importers do NOT qualify — exclude them entirely.
 
 STEP 4 - Available Languages (AL) validation rule:
 AL counts ONLY languages where the FULL user experience is available:
 navigation, product catalog, cart, checkout, and customer service all in that language.
 Do NOT count: partial translations, footer-only language switches, blog-only languages,
 or third-party subdomains not part of the main site.
-The crawler has confirmed the available languages above — keep all of them. Also search the site for any additional full-UX language versions that may have been missed (which could be on separate domains, ccTLDs, or subdirectories) and add them.
+The crawler confirmed these languages: {crawler_facts['available_languages']}. Keep all of them.
+Also search the site for any additional full-UX language versions that may have been missed (e.g. on separate domains, ccTLDs, or subdirectories) and include them.
+Use base ISO language codes only (e.g. EN, FR, ZH). Never use regional variants (no ZH-CN, PT-BR).
 
 STEP 5 - Note translation quality on the website:
 Any observations on machine vs. professional translation, inconsistencies, or untranslated sections.
@@ -212,15 +214,15 @@ If Semrush has no data for this domain, set estimated_monthly_traffic to null an
 Do not include URLs, markdown links, or citation text in the value.
 
 Return ONLY a valid JSON object with no markdown fences.
-Only return the fields below — do NOT include available_languages, language_selector_type,
+Only return the fields below — do NOT include language_selector_type,
 locale_urls, hreflang_present, pages_checked, or target_languages as those are already known:
 IMPORTANT: The JSON below shows field names and value types ONLY. Do NOT copy these example values — replace every value with your actual research findings above.
 {{
+  "available_languages": ["XX", "XX"],
   "geographic_presence": "[your actual finding: regions and country count]",
-  "required_languages": ["XX", "XX"],
+  "observed_markets": [{{"country": "XX", "evidence_type": "commercial_page|commercial_presence|country_selector|traffic", "note": "[brief evidence description]"}}],
   "mixed_language_ux_issues": "[brief plain-text summary, or 'None detected']",
   "translation_quality_notes": "[your actual finding]",
-  "lcr_notes": "[your actual finding]",
   "estimated_monthly_traffic": null,
   "top_traffic_countries": ["XX", "XX", "XX"],
   "regional_sites": [{{"domain": "[domain]", "language": "XX", "market": "[market]", "note": "[note]"}}]
@@ -236,15 +238,15 @@ Search for where this company operates, sells, or has customers. Look for:
 - International distributor network, subsidiaries, or office locations
 - Press releases, About pages, or annual reports mentioning global reach or country count
 
-STEP 2 - Derive Required Languages (RL) from the geographic footprint found in Step 1:
-RL definition: identify the top 5-8 countries by traffic share using any traffic tool (Semrush, Similarweb, etc.).
-Map each country to its dominant official or commercial language.
-RL = the distinct languages needed to serve those markets natively — no more, no fewer.
-required_languages must reflect the company's actual significant customer base,
-not what is already on the website and not an assumption about what a company "should" have.
-Prefer traffic data. If no traffic tool has data for this domain, fall back to the geographic
-footprint from Step 1 — use the company's key markets and regions to infer which languages
-are needed. Do not return an empty array.
+STEP 2 - Identify observed markets from your research.
+For each market where there is concrete evidence of commercial activity, output one entry in observed_markets.
+Use ISO 3166-1 alpha-2 country codes only (e.g. FR, DE, JP). Drop any code you are not confident about.
+Choose the most specific evidence type that applies:
+  - commercial_page: company operates a ccTLD or dedicated regional domain for this market (e.g. company.de, company.co.uk)
+  - commercial_presence: the company explicitly names this country as a market where it operates or generates revenue. Do NOT use for: social media posts, LinkedIn updates, regional sales contacts or phone numbers, or distributor networks.
+  - country_selector: this country appears in the site's country/region selector — ONLY use this if the selector has a small deliberate list (fewer than 20 countries); do NOT use for global dropdowns with 50+ countries
+  - traffic: this country is a top traffic source with meaningful share (at least 5% of traffic) per Semrush or Similarweb — do NOT list every traffic country, only those with significant share
+Be selective: only include markets where the company itself has direct commercial engagement. Distributors, resellers, and importers do NOT qualify — exclude them entirely.
 
 STEP 3 - Determine Available Languages (AL) from the website:
 AL counts ONLY languages where the FULL user experience is available:
@@ -275,18 +277,17 @@ Do not include URLs, markdown links, or citation text in the value.
 Return ONLY a valid JSON object with no markdown fences.
 IMPORTANT: The JSON below shows field names and value types ONLY. Do NOT copy these example values — replace every value with your actual research findings above.
 hreflang_present and hreflang_x_default_present must be JSON booleans (true or false), never null or a string.
-For available_languages and required_languages, use base ISO language codes only (e.g. EN, FR, ZH, PT, ES). Never use regional variants (no ZH-CN, PT-BR, EN-GB) and never use full language names.
+For available_languages, use base ISO language codes only (e.g. EN, FR, ZH, PT, ES). Never use regional variants (no ZH-CN, PT-BR, EN-GB) and never use full language names.
 {{
   "available_languages": ["XX", "XX"],
   "language_selector_type": "[your actual finding]",
   "geographic_presence": "[your actual finding: regions and country count]",
-  "required_languages": ["XX", "XX"],
+  "observed_markets": [{{"country": "XX", "evidence_type": "commercial_page|commercial_presence|country_selector|traffic", "note": "[brief evidence description]"}}],
   "hreflang_present": null,
   "hreflang_x_default_present": null,
   "mixed_language_ux_issues": "[brief plain-text summary, or 'None detected']",
   "mixed_language_affected_locales_count": 0,
   "translation_quality_notes": "[your actual finding]",
-  "lcr_notes": "[your actual finding]",
   "estimated_monthly_traffic": null,
   "top_traffic_countries": ["XX", "XX", "XX"],
   "regional_sites": []
@@ -311,10 +312,13 @@ For available_languages and required_languages, use base ISO language codes only
     # the crawler so GPT can infer the applicable regulatory framework (GDPR, RGAA,
     # ADA, etc.) without needing the full Turn 1 conversation history.
     # ------------------------------------------------------------------
-    available_languages = (
-        crawler_facts.get("available_languages") if crawler_facts
-        else pillar1_data.get("available_languages", [])
-    ) or []
+    if crawler_ran:
+        crawler_set = {l.upper() for l in (crawler_facts.get("available_languages") or [])}
+        gpt_set = {l.upper() for l in (pillar1_data.get("available_languages") or [])}
+        available_languages = sorted(crawler_set | gpt_set)
+        pillar1_data["available_languages"] = available_languages
+    else:
+        available_languages = list(pillar1_data.get("available_languages") or [])
     locale_urls = (
         crawler_facts.get("locale_urls") if crawler_facts
         else pillar1_data.get("locale_urls", {})
@@ -435,9 +439,8 @@ Research the website {url} to gather competitive benchmark data. Search online f
 
 GLOBALIZATION:
 1. What languages are available on the website? Only count full UX languages (not partial translations).{_lang_question_suffix}
-2. Search for the company's geographic presence (countries, regions, key markets). Based on that footprint, identify which languages would justify a full translated UX — counting only languages where there is a substantial customer segment, not every language in every country of operation. Return this as required_languages (list of base ISO codes, e.g. ["EN", "FR", "ES"]).
-3. Brief description of global reach (number of countries, key regions).
-4. Search Semrush (semrush.com/website/[domain]/overview/) for monthly organic traffic. Return a clean string like "9.1M (Semrush, Mar 2026)". If Semrush has no data for this domain, return null.
+2. Brief description of global reach (number of countries, key regions).
+3. Search Semrush (semrush.com/website/[domain]/overview/) for monthly organic traffic. Return a clean string like "9.1M (Semrush, Mar 2026)". If Semrush has no data for this domain, return null.
 
 ACCESSIBILITY & COMPLIANCE:
 5. Accessibility statement: yes/no
@@ -460,7 +463,6 @@ For available_languages, use base ISO language codes only (e.g. EN, FR, ZH, PT, 
 {{
   "company_name": "[actual company name]",
   "available_languages": ["XX", "XX"],
-  "required_languages": ["XX", "XX"],
   "global_reach": "[your actual finding]",
   "estimated_monthly_traffic": null,
   "has_accessibility_statement": false,
@@ -489,30 +491,7 @@ For available_languages, use base ISO language codes only (e.g. EN, FR, ZH, PT, 
 
 
 # ---------------------------------------------------------------------------
-# Step 2: Compute deterministic metrics
-# ---------------------------------------------------------------------------
-
-def compute_lcr(available_languages: list, required_languages: list) -> float:
-    """Calculate Language Coverage Rate: LCR = (AL / RL) * 100."""
-    if not required_languages:
-        return 0.0
-    return round(len(set(available_languages) & set(required_languages)) / len(required_languages) * 100, 1)
-
-
-def compute_lcr_tier(lcr: float) -> str:
-    """Return Powerling LCR tier label."""
-    if lcr >= 100:
-        return "Full Coverage"
-    elif lcr >= 76:
-        return "Strong Coverage"
-    elif lcr >= 51:
-        return "Partial Coverage"
-    else:
-        return "Limited Coverage"
-
-
-# ---------------------------------------------------------------------------
-# Step 3: Build Facts Pack
+# Step 2: Build Facts Pack
 # ---------------------------------------------------------------------------
 
 def build_facts_pack(
@@ -522,18 +501,16 @@ def build_facts_pack(
     pillar1: dict,
     pillar3: dict,
     pillar4: dict,
+    classification: dict,
     competitor_facts: list,
     pillar2: dict = None,
 ) -> dict:
-    lcr_available_langs = pillar1.get("available_languages", [])
-    lcr_required_langs = pillar1.get("required_languages", [])
-    lcr = compute_lcr(lcr_available_langs, lcr_required_langs)
-    lcr_tier = compute_lcr_tier(lcr)
-
-    # Compute LCR and tier for each competitor
-    for cf in competitor_facts:
-        cf["lcr_score"] = compute_lcr(cf.get("available_languages", []), cf.get("required_languages", []))
-        cf["lcr_tier"] = compute_lcr_tier(cf["lcr_score"])
+    language_assessment = compute_language_gaps(
+        observed_markets=pillar1.get("observed_markets"),
+        available_languages=pillar1.get("available_languages"),
+        business_model=classification.get("business_model"),
+        vertical=classification.get("industry"),
+    )
 
     # return facts info about each competitor
     return {
@@ -543,11 +520,8 @@ def build_facts_pack(
         "competitor_facts": competitor_facts,
         "pillar_1_globalization": {
             **pillar1,
-            "lcr_score": lcr,
-            "lcr_tier": lcr_tier,
-            "lcr_available": len(lcr_available_langs),
-            "lcr_required": len(lcr_required_langs),
-            "lcr_covered": len(set(lcr_available_langs) & set(lcr_required_langs)),
+            "language_assessment_state": language_assessment["state"],
+            "language_gaps": language_assessment["gaps"],
         },
         "pillar_2_website_health": pillar2 or {
             "note": "PageSpeed data not available."
@@ -586,7 +560,7 @@ def generate_ui_content(facts: dict) -> dict:
     # Competitor summary
     comp_summary = "\n".join(
         f"- {c.get('company_name', f'Competitor {i+1}')}: "
-        f"{len(c.get('available_languages', []))} languages, LCR {c.get('lcr_score', 'N/A')}%, "
+        f"{len(c.get('available_languages', []))} languages, "
         f"sentiment {c.get('overall_sentiment', 'N/A')}, LinkedIn {c.get('linkedin_followers', 'N/A')}, "
         f"WCAG: {c.get('wcag_level_claimed', 'undeclared')}, brand: {c.get('brand_recognition', 'N/A')}"
         for i, c in enumerate(cf)
@@ -617,9 +591,8 @@ Company: {company_name}
 Website: {url}
 
 PILLAR 1 - GLOBALIZATION:
-- Available languages: {p1.get('available_languages', [])} ({p1.get('lcr_available', 0)} of {p1.get('lcr_required', 0)} required)
-- Required languages: {p1.get('required_languages', [])}
-- LCR score: {p1.get('lcr_score', 0)}% ({p1.get('lcr_tier', 'N/A')})
+- Available languages: {p1.get('available_languages', [])}
+- Language assessment: {p1.get('language_assessment_state', 'N/A')} — {len(p1.get('language_gaps', []))} gap(s) identified
 - Geographic presence: {p1.get('geographic_presence', 'N/A')}
 - Hreflang: {'Present' if p1.get('hreflang_present') else 'Missing' if p1.get('crawler_ran') else 'Unknown (crawler did not run)'}
 - x-default: {'Present' if p1.get('hreflang_x_default_present') else 'Missing' if p1.get('crawler_ran') else 'Unknown (crawler did not run)'}
@@ -727,7 +700,7 @@ Return ONLY a valid JSON object with no markdown fences:
 # Main pipeline entry point
 # ---------------------------------------------------------------------------
 
-def run_audit(job_id: str, url: str, company_name: str, competitors: list) -> dict:
+def run_audit(job_id: str, url: str, company_name: str, classification: dict, competitors: list) -> dict:
     """
     Run the full audit pipeline with I/O and competitor work parallelized.
     Pillar 2 (DataForSEO + PSI) and each competitor's full chain (Playwright crawl
@@ -781,7 +754,7 @@ def run_audit(job_id: str, url: str, company_name: str, competitors: list) -> di
         _ctx.job_id = job_id[:8]
         if not _dns_resolves(comp_url):
             plog(f"[audit]   Comp DNS lookup failed ({comp_url}) — skipping.")
-            return {"company_name": comp_url, "available_languages": [], "required_languages": []}
+            return {"company_name": comp_url, "available_languages": []}
         comp_langs = None
         if gather_pillar1_facts:
             try:
@@ -802,7 +775,7 @@ def run_audit(job_id: str, url: str, company_name: str, competitors: list) -> di
             return comp_data
         except Exception as e:
             plog(f"[audit]   Comp GPT failed ({comp_url}): {e}")
-            return {"company_name": comp_url, "available_languages": comp_langs or [], "required_languages": []}
+            return {"company_name": comp_url, "available_languages": comp_langs or []}
 
     # Launch background threads:
     # max_workers=4: 1 for Pillar 2 (DataForSEO + PSI), 3 for competitor full chains. All start at same time as main thread. 
@@ -931,6 +904,7 @@ def run_audit(job_id: str, url: str, company_name: str, competitors: list) -> di
     facts = build_facts_pack(
         url, company_name, competitors,
         pillar1_data, pillar3_data, pillar4_data,
+        classification,
         competitor_facts,
         pillar2=pillar2_data,
     )

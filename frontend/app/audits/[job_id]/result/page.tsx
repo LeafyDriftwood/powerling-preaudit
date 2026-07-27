@@ -8,6 +8,14 @@ import { Popover, PopoverButton, PopoverPanel } from '@headlessui/react';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
+interface LanguageGap {
+  language: string;
+  market: string;
+  strength: "strong" | "medium";
+  reason: string;
+  regulatory: boolean;
+}
+
 interface AuditMeta {
   company_name: string;
   url: string;
@@ -36,14 +44,16 @@ interface UiContent {
 
 interface Facts {
   pillar_1_globalization: {
-    lcr_score: number;
-    lcr_tier: string;
-    lcr_available: number;
-    lcr_required: number;
-    lcr_covered: number;
+    language_assessment_state?: "aligned" | "potential_gaps" | "needs_confirmation";
+    language_gaps?: LanguageGap[];
+    lcr_score?: number;
+    lcr_tier?: string;
+    lcr_available?: number;
+    lcr_required?: number;
+    lcr_covered?: number;
+    required_languages?: string[];
     available_languages: string[];
     available_language_variants?: string[];
-    required_languages: string[];
     crawler_ran?: boolean;
     hreflang_present: boolean;
     hreflang_x_default_present: boolean;
@@ -121,13 +131,6 @@ function scoreColor(score?: number) {
   return "text-red-600";
 }
 
-function tierColor(tier?: string) {
-  if (!tier) return "bg-gray-100 text-gray-500";
-  if (tier === "Full Coverage") return "bg-green-100 text-green-700";
-  if (tier === "Strong Coverage") return "bg-lime-100 text-lime-700";
-  if (tier === "Partial Coverage") return "bg-yellow-100 text-yellow-700";
-  return "bg-red-100 text-red-700";
-}
 
 function StarRating({ score, max = 5 }: { score?: number | string; max?: number }) {
   const num = typeof score === "string" ? parseFloat(score) : score;
@@ -181,6 +184,73 @@ function LcrDonut({ score, tier }: { score: number; tier: string }) {
         <span className="text-xs font-medium text-gray-600">{tier}</span>
         <MetricPopover title="Language Coverage Rate" content="Required: languages needed to serve the company's key markets, derived from traffic data and geographic footprint. Available: languages where the full UX (navigation, catalog, checkout) is live. LCR = percentage of required languages that are currently live on the site." />
       </div>
+    </div>
+  );
+}
+
+function LanguageStateBadge({ state }: { state: string }) {
+  const cfg: Record<string, { label: string; className: string }> = {
+    aligned: { label: "Aligned", className: "bg-green-100 text-green-700 border-green-200" },
+    potential_gaps: { label: "Potential Gaps", className: "bg-amber-100 text-amber-700 border-amber-200" },
+    needs_confirmation: { label: "Needs Confirmation", className: "bg-gray-100 text-gray-600 border-gray-200" },
+  };
+  const { label, className } = cfg[state] ?? cfg.needs_confirmation;
+  return (
+    <span className={`px-3 py-1.5 rounded-full text-sm font-semibold border ${className}`}>{label}</span>
+  );
+}
+
+function LanguageGapList({ gaps, state }: { gaps: LanguageGap[]; state: string }) {
+  const grouped = gaps.reduce<Record<string, LanguageGap[]>>((acc, gap) => {
+    (acc[gap.language] ??= []).push(gap);
+    return acc;
+  }, {});
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center gap-3">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Language Coverage</p>
+        <MetricPopover title="Language gap priority" content={
+          <div className="flex flex-col gap-2">
+            <div className="flex items-start gap-2">
+              <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0 mt-1" />
+              <span><span className="font-semibold text-gray-700">Critical</span> - strong evidence the company operates in this market. This language gap is a real localization risk.</span>
+            </div>
+            <div className="flex items-start gap-2">
+              <span className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0 mt-1" />
+              <span><span className="font-semibold text-gray-700">Suggested</span> - indirect signals only (traffic, country selector). Lower confidence but worth considering.</span>
+            </div>
+          </div>
+        } />
+        <LanguageStateBadge state={state} />
+      </div>
+      {gaps.length > 0 ? (
+        <ul className="flex flex-col gap-3">
+          {Object.entries(grouped).map(([lang, entries]) => {
+            const isStrong = entries[0].strength === "strong";
+            const langName = LANG_NAMES[lang.toUpperCase()] ?? lang;
+            return (
+              <li key={lang} className="flex flex-col gap-0.5">
+                <div className="flex items-center gap-2">
+                  {isStrong
+                    ? <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-red-500" />
+                    : <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-amber-400" />
+                  }
+                  <span className="text-sm font-semibold text-gray-800">{langName}</span>
+                  <span className="text-xs text-gray-400 font-mono">{lang}</span>
+                </div>
+                <ul className="flex flex-col gap-0.5 pl-3.5">
+                  {entries.map((entry, i) => (
+                    <li key={i} className="text-xs text-gray-500 leading-relaxed">{entry.reason}</li>
+                  ))}
+                </ul>
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <p className="text-xs text-green-600">No language gaps identified.</p>
+      )}
     </div>
   );
 }
@@ -249,65 +319,85 @@ function MetricPopover({ title, content }: { title: string; content: React.React
   );
 }
 
+const LANG_NAMES: Record<string, string> = {
+  AF: "Afrikaans", AR: "Arabic", AZ: "Azerbaijani", BE: "Belarusian", BG: "Bulgarian",
+  BN: "Bengali", BS: "Bosnian", CA: "Catalan", CS: "Czech", CY: "Welsh",
+  DA: "Danish", DE: "German", EL: "Greek", EN: "English", ES: "Spanish",
+  ET: "Estonian", EU: "Basque", FA: "Persian", FI: "Finnish", FR: "French",
+  GA: "Irish", GL: "Galician", GU: "Gujarati", HE: "Hebrew", HI: "Hindi",
+  HR: "Croatian", HT: "Haitian Creole", HU: "Hungarian", HY: "Armenian",
+  ID: "Indonesian", IS: "Icelandic", IT: "Italian", JA: "Japanese",
+  KA: "Georgian", KK: "Kazakh", KM: "Khmer", KN: "Kannada", KO: "Korean",
+  LT: "Lithuanian", LV: "Latvian", MK: "Macedonian", ML: "Malayalam",
+  MN: "Mongolian", MR: "Marathi", MS: "Malay", MY: "Burmese", NE: "Nepali",
+  NL: "Dutch", NO: "Norwegian", PA: "Punjabi", PL: "Polish", PT: "Portuguese",
+  RO: "Romanian", RU: "Russian", SI: "Sinhala", SK: "Slovak", SL: "Slovenian",
+  SQ: "Albanian", SR: "Serbian", SV: "Swedish", SW: "Swahili", TA: "Tamil",
+  TE: "Telugu", TH: "Thai", TL: "Filipino", TR: "Turkish", UK: "Ukrainian",
+  UR: "Urdu", UZ: "Uzbek", VI: "Vietnamese", ZH: "Chinese",
+};
+
 function CompetitorTable({ clientName, p1, competitors }: {
   clientName: string;
   p1: Facts["pillar_1_globalization"];
   competitors: Facts["competitor_facts"];
 }) {
-  const rows = [
-    { name: clientName, lcr_score: p1.lcr_score, lcr_tier: p1.lcr_tier, languages: p1.lcr_available, isClient: true },
+  const cols = [
+    { name: clientName, langs: new Set((p1.available_languages ?? []).map(l => l.toUpperCase())), isClient: true },
     ...competitors.map(c => ({
-      name: c.company_name ?? "—",
-      lcr_score: c.lcr_score,
-      lcr_tier: c.lcr_tier,
-      languages: c.available_languages?.length,
+      name: c.company_name ?? "-",
+      langs: new Set((c.available_languages ?? []).map(l => l.toUpperCase())),
       isClient: false,
     })),
   ];
 
+  const allLangs = Array.from(new Set(cols.flatMap(c => Array.from(c.langs)))).sort();
+
   return (
-    <Card className="overflow-hidden">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="bg-gray-50 border-b border-gray-200">
-            <th className="text-left px-5 py-3 font-semibold text-gray-600">Company</th>
-            <th className="text-left px-5 py-3 font-semibold text-gray-600"><abbr title="Language Coverage Rate">LCR Score</abbr></th>
-            <th className="text-left px-5 py-3 font-semibold text-gray-600">Tier</th>
-            <th className="text-left px-5 py-3 font-semibold text-gray-600">Languages</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-100">
-          {rows.map((row, i) => (
-            <tr key={i} className={row.isClient ? "bg-green-50" : "hover:bg-gray-50 transition"}>
-              <td className="px-5 py-3 font-medium text-gray-900">
-                {row.name}
-                {row.isClient && <span className="ml-2 text-xs text-green-600 font-normal">(client)</span>}
-              </td>
-              <td className="px-5 py-3">
-                {row.lcr_score != null ? (
-                  <div className="flex items-center gap-2">
-                    <div className="w-24 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full ${row.lcr_score >= 76 ? "bg-green-500" : row.lcr_score >= 51 ? "bg-yellow-500" : "bg-red-500"}`}
-                        style={{ width: `${row.lcr_score}%` }}
-                      />
-                    </div>
-                    <span className={`font-semibold ${scoreColor(row.lcr_score)}`}>{row.lcr_score}%</span>
-                  </div>
-                ) : <span className="text-gray-400">—</span>}
-              </td>
-              <td className="px-5 py-3">
-                {row.lcr_tier ? (
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${tierColor(row.lcr_tier)}`}>{row.lcr_tier}</span>
-                ) : <span className="text-gray-400">—</span>}
-              </td>
-              <td className="px-5 py-3 text-gray-700 font-medium">
-                {row.languages ?? <span className="text-gray-400">—</span>}
-              </td>
+    <Card>
+      <div className="overflow-auto max-h-[300px]">
+        <table className="text-sm w-full">
+          <thead className="sticky top-0 z-10">
+            <tr className="bg-gray-50 border-b border-gray-200">
+              <th className="text-left px-5 py-3 font-semibold text-gray-600 whitespace-nowrap">Language</th>
+              {cols.map((col, i) => (
+                <th key={i} className={`px-3 py-3 text-xs font-semibold uppercase tracking-wider text-center whitespace-nowrap ${col.isClient ? "text-green-700" : "text-gray-500"}`}>
+                  {col.name}
+                </th>
+              ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {allLangs.map(lang => (
+              <tr key={lang} className="hover:bg-gray-50 transition">
+                <td className="px-5 py-3 text-gray-700 text-xs whitespace-nowrap">
+                  {LANG_NAMES[lang] && <span className="text-sm text-gray-700 font-normal normal-case">{LANG_NAMES[lang]}</span>}
+                  <span className="ml-1.5 text-[10px] uppercase tracking-wider text-gray-400">{lang}</span>
+                </td>
+                {cols.map((col, i) => (
+                  <td key={i} className={`px-3 py-3 text-center${col.isClient ? " bg-green-50" : ""}`}>
+                    {col.langs.has(lang) ? (
+                      <span className={col.isClient ? "text-green-600 font-bold" : "text-gray-400"}>✓</span>
+                    ) : (
+                      <span className="text-gray-200">–</span>
+                    )}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+          <tfoot className="sticky bottom-0 z-10">
+            <tr className="border-t-2 border-gray-200 bg-gray-50">
+              <td className="px-5 py-3 text-xs font-semibold text-gray-600">Total</td>
+              {cols.map((col, i) => (
+                <td key={i} className={`px-3 py-3 text-center text-xs font-bold${col.isClient ? " text-green-700 bg-green-50" : " text-gray-600"}`}>
+                  {col.langs.size}
+                </td>
+              ))}
+            </tr>
+          </tfoot>
+        </table>
+      </div>
     </Card>
   );
 }
@@ -391,13 +481,13 @@ export default function ResultPage() {
     p2.psi_ran === false && p2.crawl_ran === false
       ? "Performance and crawl data could not be collected. Pillar 2 findings are based on limited information only."
       : p2.crawl_ran === false && p2.crawl_error?.startsWith("Bot-blocked")
-      ? "Site health data unavailable — bot protection prevented the crawler from accessing this site. PSI scores above are unaffected."
+      ? "Site health data unavailable - bot protection prevented the crawler from accessing this site. PSI scores above are unaffected."
       : p2.crawl_ran === false && p2.crawl_error
       ? `Crawl data unavailable: ${p2.crawl_error}`
       : p2.psi_ran === false
       ? "PageSpeed data could not be collected for this site."
       : p2.crawl_ran !== false && p2.pages_crawled === 1
-      ? "Crawl limited to 1 page — metrics reflect the homepage only, not the full site."
+      ? "Crawl limited to 1 page - metrics reflect the homepage only, not the full site."
       : null;
   const p3 = facts.pillar_3_accessibility;
   const p4 = facts.pillar_4_online_reputation;
@@ -501,19 +591,23 @@ export default function ResultPage() {
 
         {/* ── Pillar 1: Globalization ─────────────────────────────────────── */}
         <section id="pillar1" className="flex flex-col gap-4 scroll-mt-20">
-          <SectionHeader id="pillar1-hdr" title="Pillar 1 — Globalization" subtitle={ui_content?.pillar_1?.headline ?? ""} />
+          <SectionHeader id="pillar1-hdr" title="Pillar 1 - Globalization" subtitle={ui_content?.pillar_1?.headline ?? ""} />
           <div className="grid md:grid-cols-2 gap-4">
 
             {/* Left: stats */}
             <Card className="p-5 flex flex-col gap-5">
-              <div className="flex items-center justify-between">
-                <LcrDonut score={p1.lcr_score ?? 0} tier={p1.lcr_tier ?? ""} />
-                <div className="flex flex-col gap-1 text-right">
-                  <span className="text-xs text-gray-500">Languages live on site</span>
-                  <span className="text-2xl font-bold text-gray-900">{p1.lcr_available ?? 0}</span>
-                  <span className="text-xs text-gray-400">covering {p1.lcr_covered ?? 0} of {p1.lcr_required ?? 0} required</span>
+              {p1.language_gaps !== undefined ? (
+                <LanguageGapList gaps={p1.language_gaps} state={p1.language_assessment_state ?? "needs_confirmation"} />
+              ) : (
+                <div className="flex items-center justify-between">
+                  <LcrDonut score={p1.lcr_score ?? 0} tier={p1.lcr_tier ?? ""} />
+                  <div className="flex flex-col gap-1 text-right">
+                    <span className="text-xs text-gray-500">Languages live on site</span>
+                    <span className="text-2xl font-bold text-gray-900">{p1.lcr_available ?? 0}</span>
+                    <span className="text-xs text-gray-400">covering {p1.lcr_covered ?? 0} of {p1.lcr_required ?? 0} required</span>
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div className="bg-gray-50 rounded-lg p-3">
@@ -586,7 +680,9 @@ export default function ResultPage() {
                   <p className="text-xs text-gray-500 mb-2">Available languages</p>
                   <div className="flex flex-wrap gap-1">
                     {p1.available_languages.map((lang) => (
-                      <span key={lang} className="px-2 py-0.5 bg-green-50 text-green-700 text-xs font-medium rounded-md">{lang}</span>
+                      <span key={lang} className="px-2 py-0.5 bg-green-50 text-green-700 text-xs font-medium rounded-md">
+                        {LANG_NAMES[lang.toUpperCase()] ?? lang}
+                      </span>
                     ))}
                   </div>
                   {(p1.available_language_variants?.length ?? 0) > 0 && (
@@ -615,7 +711,7 @@ export default function ResultPage() {
 
         {/* ── Pillar 2: Website Health ────────────────────────────────────── */}
         <section id="pillar2" className="flex flex-col gap-4 scroll-mt-20">
-          <SectionHeader id="pillar2-hdr" title="Pillar 2 — Website Health" subtitle={ui_content?.pillar_2?.headline ?? ""} />
+          <SectionHeader id="pillar2-hdr" title="Pillar 2 - Website Health" subtitle={ui_content?.pillar_2?.headline ?? ""} />
           <div className="grid md:grid-cols-2 gap-4">
 
             <Card className="p-5 flex flex-col gap-5">
@@ -687,7 +783,7 @@ export default function ResultPage() {
 
         {/* ── Pillar 3: Accessibility ─────────────────────────────────────── */}
         <section id="pillar3" className="flex flex-col gap-4 scroll-mt-20">
-          <SectionHeader id="pillar3-hdr" title="Pillar 3 — Accessibility & Compliance" subtitle={ui_content?.pillar_3?.headline ?? ""} />
+          <SectionHeader id="pillar3-hdr" title="Pillar 3 - Accessibility & Compliance" subtitle={ui_content?.pillar_3?.headline ?? ""} />
           <div className="grid md:grid-cols-2 gap-4">
 
             <Card className="p-5 flex flex-col gap-4">
@@ -697,7 +793,7 @@ export default function ResultPage() {
                   {p3.wcag_level_claimed && p3.wcag_level_claimed !== "undeclared"
                     ? <p className="font-semibold text-gray-700">{p3.wcag_level_claimed}</p>
                     : p3.accessibility_statement_url
-                    ? <a href={p3.accessibility_statement_url} target="_blank" rel="noopener noreferrer" className="font-semibold text-amber-600 hover:underline text-xs">Undeclared — verify in statement</a>
+                    ? <a href={p3.accessibility_statement_url} target="_blank" rel="noopener noreferrer" className="font-semibold text-amber-600 hover:underline text-xs">Undeclared - verify in statement</a>
                     : <p className="font-semibold text-gray-400">Undeclared</p>
                   }
                 </div>
@@ -757,7 +853,7 @@ export default function ResultPage() {
 
         {/* ── Pillar 4: Online Reputation ─────────────────────────────────── */}
         <section id="pillar4" className="flex flex-col gap-4 scroll-mt-20">
-          <SectionHeader id="pillar4-hdr" title="Pillar 4 — Online Reputation" subtitle={ui_content?.pillar_4?.headline ?? ""} />
+          <SectionHeader id="pillar4-hdr" title="Pillar 4 - Online Reputation" subtitle={ui_content?.pillar_4?.headline ?? ""} />
           <div className="grid md:grid-cols-2 gap-4">
 
             <Card className="p-5 flex flex-col gap-5">

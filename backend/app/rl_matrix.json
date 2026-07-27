@@ -1,0 +1,103 @@
+{
+  "_comment": "Required Languages Matrix — machine-readable version of rl_csvs/. Edit this file to update language rules; do not edit required_languages.py for data changes.",
+
+  "market_languages": {
+    "AE": ["ar", "en"],
+    "AR": ["es"],
+    "AT": ["de"],
+    "AU": ["en"],
+    "BE": ["fr", "nl"],
+    "BG": ["bg"],
+    "BR": ["pt"],
+    "CA": ["en", "fr"],
+    "CH": ["de", "fr"],
+    "CL": ["es"],
+    "CN": ["zh"],
+    "CO": ["es"],
+    "CZ": ["cs"],
+    "DE": ["de"],
+    "DK": ["da"],
+    "DZ": ["ar", "fr"],
+    "EE": ["et"],
+    "EG": ["ar"],
+    "ES": ["es"],
+    "FI": ["fi"],
+    "FR": ["fr"],
+    "GB": ["en"],
+    "GR": ["el"],
+    "HK": ["zh", "en"],
+    "HR": ["hr"],
+    "HU": ["hu"],
+    "ID": ["id"],
+    "IE": ["en"],
+    "IL": ["he"],
+    "IN": ["en"],
+    "IT": ["it"],
+    "JP": ["ja"],
+    "KE": ["en"],
+    "KR": ["ko"],
+    "LT": ["lt"],
+    "LU": ["fr", "de"],
+    "LV": ["lv"],
+    "MA": ["fr", "ar"],
+    "MX": ["es"],
+    "MY": ["en"],
+    "NG": ["en"],
+    "NL": ["nl"],
+    "NO": ["no"],
+    "NZ": ["en"],
+    "PE": ["es"],
+    "PH": ["en"],
+    "PK": ["en"],
+    "PL": ["pl"],
+    "PT": ["pt"],
+    "RO": ["ro"],
+    "RU": ["ru"],
+    "SA": ["ar"],
+    "SE": ["sv"],
+    "SG": ["en"],
+    "SI": ["sl"],
+    "SK": ["sk"],
+    "TH": ["th"],
+    "TN": ["ar", "fr"],
+    "TR": ["tr"],
+    "TW": ["zh"],
+    "UA": ["uk"],
+    "US": ["en"],
+    "VN": ["vi"],
+    "ZA": ["en"]
+  },
+
+  "size_caps": {
+    "SMB": 3,
+    "Mid-Market": 8,
+    "Enterprise": null
+  },
+
+  "b2b_english_industries": [
+    "Technology & Software"
+  ],
+
+  "eu_countries": [
+    "AT", "BE", "BG", "CY", "CZ", "DE", "DK", "EE", "ES", "FI",
+    "FR", "GR", "HR", "HU", "IE", "IT", "LT", "LU", "LV", "MT",
+    "NL", "PL", "PT", "RO", "SE", "SI", "SK"
+  ],
+
+  "regulatory_rules": [
+    {
+      "rule_id": "REG-FR-TOUBON",
+      "trigger_business_model": "B2C",
+      "trigger_country": "FR",
+      "langs": ["fr"],
+      "reason": "French market presence: French required for consumer-facing content under Loi Toubon (1994)"
+    },
+    {
+      "rule_id": "REG-BE-CONSUMER",
+      "trigger_business_model": "B2C",
+      "trigger_country": "BE",
+      "langs": ["fr", "nl"],
+      "reason": "National Belgian consumer coverage: {lang_name} required under Belgian linguistic legislation"
+    }
+  ]
+}

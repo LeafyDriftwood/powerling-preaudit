@@ -77,6 +77,20 @@ export async function retryAudit(job_id: string) {
   return parseJsonOrThrow(response, 'Failed to retry audit job.');
 }
 
+// classify a company
+export async function classifyCompany(url: string, company_name: string) {
+  // get headers, call api
+  const headers = await getAuthHeader();
+  const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/classify`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url, company_name }),
+  });
+
+  // handle response
+  return parseJsonOrThrow(response, 'Failed to classify company.');
+}
+
 // return the current user
 export async function getCurrentUser() {
   const session = await getSession();

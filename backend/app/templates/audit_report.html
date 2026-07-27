@@ -82,14 +82,6 @@
     font-family: var(--pw-font-mono); font-size: 9.5px; letter-spacing: 0.05em;
     color: var(--pw-fg-inverse-muted); margin-top: 14px; text-transform: uppercase;
   }
-  .report-hero .hero-langs {
-    position: absolute; right: 28px; bottom: 24px; text-align: right;
-  }
-  .report-hero .hero-langs .big {
-    font-family: var(--pw-font-display); font-size: 40px; font-weight: 500; line-height: 1;
-  }
-  .report-hero .hero-langs .lbl { font-size: 10px; color: var(--pw-fg-inverse-muted); letter-spacing: 0.04em; }
-
   section.block { margin-bottom: 9mm; }
   section.block:last-child { margin-bottom: 0; }
 
@@ -152,14 +144,6 @@
   .warn { color: var(--c-amber); }
   .muted { color: var(--pw-fg-subtle); }
 
-  .lcr-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-  .lcr-donut { display: flex; flex-direction: column; align-items: center; gap: 4px; }
-  .lcr-donut .tier { font-size: 11px; font-weight: 500; color: var(--pw-fg-muted); }
-  .lcr-side { text-align: right; }
-  .lcr-side .cap { font-size: 10.5px; color: var(--pw-fg-subtle); }
-  .lcr-side .big { font-size: 26px; font-weight: 600; color: var(--pw-ink); line-height: 1.1; }
-  .lcr-side .of { font-size: 10.5px; color: var(--pw-fg-subtle); }
-
   .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
   .chip { font-size: 10.5px; font-weight: 500; padding: 2px 8px; border-radius: 6px; }
   .chip.lang { background: var(--pw-bloc-100); color: var(--pw-forest); }
@@ -193,19 +177,7 @@
     border-bottom: 1px solid var(--pw-border);
   }
   table.comp tbody td { padding: 9px 12px; border-bottom: 1px solid var(--pw-bloc-100); vertical-align: middle; }
-  table.comp tbody tr.client { background: var(--pw-bloc-100); }
   table.comp tbody tr:last-child td { border-bottom: none; }
-  table.comp .co { font-weight: 600; color: var(--pw-ink); }
-  table.comp .tagclient { font-size: 9.5px; color: var(--pw-forest); font-weight: 400; margin-left: 6px; }
-  .lcr-cell { display: flex; align-items: center; gap: 8px; }
-  .lcr-cell .mini { width: 70px; height: 6px; background: #eef1ef; border-radius: 999px; overflow: hidden; }
-  .lcr-cell .mini > span { display: block; height: 100%; border-radius: 999px; }
-  .lcr-cell .pct { font-weight: 600; }
-  .tierbadge { font-size: 10px; font-weight: 500; padding: 2px 8px; border-radius: 999px; }
-  .tier-full    { background: #dcfce7; color: #15803d; }
-  .tier-strong  { background: #ecfccb; color: #4d7c0f; }
-  .tier-partial { background: #fef9c3; color: #a16207; }
-  .tier-limited { background: #fee2e2; color: #b91c1c; }
 
   .land-summary { font-size: 12.5px; line-height: 1.55; color: var(--pw-ink); margin: 0 0 14px; }
   .land-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
@@ -224,6 +196,36 @@
   .issues { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
   .issues li { display: flex; gap: 7px; font-size: 11.5px; color: #b04a52; line-height: 1.4; }
   .issues li .b { color: var(--c-red); font-weight: 700; flex: 0 0 auto; }
+
+  /* Language gap list */
+  .lang-cov-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+  .cov-label { font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--pw-fg-subtle); }
+  .state-badge { font-size: 10px; font-weight: 600; padding: 2px 10px; border-radius: 999px; border: 1px solid transparent; }
+  .state-aligned { background: #dcfce7; color: #15803d; border-color: #bbf7d0; }
+  .state-potential_gaps { background: #fffbeb; color: #b45309; border-color: #fde68a; }
+  .state-needs_confirmation { background: #f3f4f6; color: #6b7280; border-color: #e5e7eb; }
+  .gap-list { list-style: none; margin: 0 0 14px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  .gap-item { display: flex; flex-direction: column; gap: 1px; }
+  .gap-row { display: flex; align-items: center; gap: 5px; }
+  .gdot { width: 6px; height: 6px; border-radius: 999px; flex-shrink: 0; }
+  .gdot-strong { background: var(--c-red); }
+  .gdot-medium { background: #f59e0b; }
+  .glang { font-size: 12.5px; font-weight: 600; color: var(--pw-ink); }
+  .gcode { font-size: 9.5px; font-family: var(--pw-font-mono); color: var(--pw-fg-subtle); text-transform: uppercase; margin-left: 2px; }
+  .greason { font-size: 10.5px; color: var(--pw-fg-muted); margin: 0; line-height: 1.4; padding-left: 11px; }
+  .no-gaps { font-size: 12px; color: var(--c-green-strong); margin: 0 0 14px; }
+
+  /* Competitor language matrix */
+  table.comp thead th.client-col { color: var(--pw-forest); }
+  table.comp td.lang-col { white-space: nowrap; }
+  table.comp td.lang-col .ln { font-size: 12px; font-weight: 500; color: var(--pw-ink); }
+  table.comp td.lang-col .lc { font-size: 9px; font-family: var(--pw-font-mono); color: var(--pw-fg-subtle); margin-left: 4px; text-transform: uppercase; }
+  .check-yes { color: var(--pw-forest); font-weight: 700; font-size: 13px; }
+  .check-muted { color: var(--pw-fg-subtle); font-size: 13px; }
+  .check-no { color: #e5e7eb; font-size: 13px; }
+  table.comp tr.matrix-sep td { text-align: center; color: var(--pw-fg-subtle); letter-spacing: 4px; padding: 3px 12px; border-bottom: none; font-size: 11px; }
+  table.comp tr.matrix-totals td { font-weight: 600; font-size: 11px; background: var(--pw-bloc-100); border-top: 2px solid var(--pw-bloc-200); }
+  table.comp tr.matrix-totals td.lang-col { color: var(--pw-fg-subtle); font-weight: 400; font-style: italic; }
 
   @page { size: A4; margin: 0; }
   @media print {
@@ -250,10 +252,6 @@
       <h1>{{ company_name }}</h1>
       <a class="url" href="{{ url }}">{{ url }}</a>
       <p class="gen">Generated {{ generated_date }}</p>
-      <div class="hero-langs">
-        <div class="big">{{ p1.lcr_score }}%</div>
-        <div class="lbl">Language Coverage Rate</div>
-      </div>
     </div>
 
     <section class="block">
@@ -299,23 +297,29 @@
       </div>
       <div class="grid2">
         <div class="card">
-          <div class="lcr-row">
-            <div class="lcr-donut">
-              <svg width="92" height="92" viewBox="0 0 100 100">
-                <circle cx="50" cy="50" r="38" fill="none" stroke="#eef1ef" stroke-width="10"></circle>
-                <circle cx="50" cy="50" r="38" fill="none" stroke="{{ lcr_donut_color }}" stroke-width="10"
-                  stroke-dasharray="{{ lcr_arc }} 238.8" stroke-linecap="round" transform="rotate(-90 50 50)"></circle>
-                <text x="50" y="47" text-anchor="middle" font-size="17" font-weight="700" fill="#17271F" font-family="Atyp Text">{{ p1.lcr_score }}%</text>
-                <text x="50" y="61" text-anchor="middle" font-size="9" fill="#6E857B" font-family="Atyp Text">LCR</text>
-              </svg>
-              <span class="tier">{{ p1.lcr_tier }}</span>
-            </div>
-            <div class="lcr-side">
-              <div class="cap">Languages live on site</div>
-              <div class="big">{{ p1.lcr_available }}</div>
-              <div class="of">covering {{ p1.lcr_covered }} of {{ p1.lcr_required }} required</div>
-            </div>
+          {% set gaps = p1.language_gaps if p1.language_gaps is defined and p1.language_gaps is not none else [] %}
+          {% set lang_state = p1.language_assessment_state or 'needs_confirmation' %}
+          {% set state_labels = {'aligned': 'Aligned', 'potential_gaps': 'Potential Gaps', 'needs_confirmation': 'Needs Confirmation'} %}
+          <div class="lang-cov-head">
+            <span class="cov-label">Language Coverage</span>
+            <span class="state-badge state-{{ lang_state }}">{{ state_labels.get(lang_state, 'Needs Confirmation') }}</span>
           </div>
+          {% if gaps %}
+          <ul class="gap-list">
+            {% for gap in gaps %}
+            <li class="gap-item">
+              <div class="gap-row">
+                <span class="gdot gdot-{{ gap.strength }}"></span>
+                <span class="glang">{{ lang_names.get(gap.language|lower, gap.language) }}</span>
+                <span class="gcode">{{ gap.language }}</span>
+              </div>
+              <p class="greason">{{ gap.reason }}</p>
+            </li>
+            {% endfor %}
+          </ul>
+          {% else %}
+          <p class="no-gaps">No language gaps identified.</p>
+          {% endif %}
 
           <div class="tiles">
             <div class="tile">
@@ -341,7 +345,7 @@
           <p class="chips-cap" style="margin-top:14px;">Available languages</p>
           <div class="chips">
             {% for code in avail_langs %}
-            <span class="chip lang">{{ code }}</span>
+            <span class="chip lang">{{ lang_names.get(code|lower, code) }}</span>
             {% endfor %}
           </div>
           {% endif %}
@@ -495,8 +499,9 @@
           <div class="tiles">
             <div class="tile">
               <p class="lbl">WCAG level</p>
-              {% set wcag = p3.wcag_level_claimed or 'Undeclared' %}
-              <p class="val {% if wcag|lower == 'undeclared' %}muted{% else %}pos{% endif %}">{{ wcag }}</p>
+              {% set wcag_raw = p3.wcag_level_claimed or '' %}
+              {% set wcag_display = 'Undeclared' if not wcag_raw or wcag_raw|lower == 'undeclared' else wcag_raw %}
+              <p class="val {% if wcag_display == 'Undeclared' %}muted{% else %}pos{% endif %}">{{ wcag_display }}</p>
             </div>
             <div class="tile">
               <p class="lbl">Accessibility statement</p>
@@ -672,41 +677,48 @@
         <p class="sec-sub">How the client compares to the competitive set</p>
       </div>
 
-      <div class="card" style="padding:0; margin-bottom:14px;">
+      {% if all_comp_langs %}
+      <div class="card" style="padding:0; margin-bottom:14px; overflow-x:auto;">
         <table class="comp">
           <thead>
-            <tr><th>Company</th><th>LCR Score</th><th>Tier</th><th>Languages</th></tr>
+            <tr>
+              <th class="lang-col">Language</th>
+              <th class="client-col">{{ company_name }}</th>
+              {% for comp in cf %}
+              <th>{{ comp.company_name }}</th>
+              {% endfor %}
+            </tr>
           </thead>
           <tbody>
-            <tr class="client">
-              <td class="co">{{ company_name }}<span class="tagclient">(client)</span></td>
-              <td>
-                <div class="lcr-cell">
-                  <span class="mini"><span style="width:{{ p1.lcr_score }}%;background:{{ lcr_donut_color }};"></span></span>
-                  <span class="pct {{ score_class_lcr(p1.lcr_score) }}">{{ p1.lcr_score }}%</span>
-                </div>
-              </td>
-              <td><span class="tierbadge {{ tier_class(p1.lcr_tier) }}">{{ p1.lcr_tier }}</span></td>
-              <td>{{ p1.lcr_available }}</td>
-            </tr>
-            {% for comp in cf %}
-            {% set comp_lcr = comp.lcr_score or 0 %}
-            {% set comp_avail = (comp.available_languages or [])|length %}
+            {% set n_cols = 2 + cf|length %}
+            {% for lang in all_comp_langs[:14] %}
             <tr>
-              <td class="co">{{ comp.company_name }}</td>
-              <td>
-                <div class="lcr-cell">
-                  <span class="mini"><span style="width:{{ comp_lcr }}%;background:{{ lcr_bar_color(comp_lcr) }};"></span></span>
-                  <span class="pct {{ score_class_lcr(comp_lcr) }}">{{ comp_lcr }}%</span>
-                </div>
+              <td class="lang-col">
+                <span class="ln">{{ lang_names.get(lang|lower, lang) }}</span>
+                <span class="lc">{{ lang }}</span>
               </td>
-              <td><span class="tierbadge {{ tier_class(comp.lcr_tier) }}">{{ comp.lcr_tier }}</span></td>
-              <td>{{ comp_avail }}</td>
+              <td>{% if lang in client_langs %}<span class="check-yes">✓</span>{% else %}<span class="check-no">–</span>{% endif %}</td>
+              {% for comp_langs in comp_lang_lists %}
+              <td>{% if lang in comp_langs %}<span class="check-yes">✓</span>{% else %}<span class="check-muted">–</span>{% endif %}</td>
+              {% endfor %}
             </tr>
             {% endfor %}
+            {% if all_comp_langs|length > 14 %}
+            <tr class="matrix-sep">
+              <td colspan="{{ n_cols }}">···</td>
+            </tr>
+            {% endif %}
+            <tr class="matrix-totals">
+              <td class="lang-col">Total</td>
+              <td>{{ client_langs|length }}</td>
+              {% for comp_langs in comp_lang_lists %}
+              <td>{{ comp_langs|length }}</td>
+              {% endfor %}
+            </tr>
           </tbody>
         </table>
       </div>
+      {% endif %}
 
       {% set cl = ui.competitive_landscape or {} %}
       <div class="card">

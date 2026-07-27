@@ -26,6 +26,7 @@ power/
 # client documents
 *.pdf
 *.json
+!rl_matrix.json 
 *.txt
 test_*.py
 !test_pillar1_gather.py
